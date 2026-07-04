@@ -1,0 +1,9 @@
+services:
+  v79-tiquet-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: v79-tiquet-manager
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
