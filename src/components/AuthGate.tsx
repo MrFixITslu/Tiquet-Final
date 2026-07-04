@@ -13,10 +13,12 @@ import {
   EyeOff, 
   AlertCircle, 
   Info,
-  Facebook
+  Facebook,
+  Chrome
 } from "lucide-react";
 import { AuthenticatedUser, Business } from "../types";
 import { generateUUID } from "../utils";
+import { googleSignIn } from "../lib/googleDrive";
 
 interface StoredUser {
   id: string;
@@ -32,7 +34,7 @@ export function AuthGate({
   onAuthComplete: (user: AuthenticatedUser, activeBusiness: Business) => void;
 }) {
   const [authStep, setAuthStep] = useState<"login" | "loading" | "business_select" | "create_business">("login");
-  const [loginTab, setLoginTab] = useState<"email" | "facebook">("email");
+  const [loginTab, setLoginTab] = useState<"email" | "facebook" | "google">("email");
   const [loadingText, setLoadingText] = useState("");
   const [tempUser, setTempUser] = useState<AuthenticatedUser | null>(null);
 
@@ -280,6 +282,34 @@ export function AuthGate({
     }
   };
 
+  // ACTUAL GOOGLE POPUP LOGIN HANDLER
+  const handleGoogleLogin = async () => {
+    setErrorMessage("");
+    setLoadingText("Verifying Google SSO credentials and isolating your session...");
+    setAuthStep("loading");
+    try {
+      const result = await googleSignIn();
+      if (result && result.user) {
+        const authenticatedUser: AuthenticatedUser = {
+          id: `g_${result.user.uid}`,
+          name: result.user.displayName || "Google User",
+          email: result.user.email || "google-user@domain.com",
+          provider: "google",
+          photoUrl: result.user.photoURL || undefined
+        };
+        setTempUser(authenticatedUser);
+        setAuthStep("business_select");
+      } else {
+        setAuthStep("login");
+        setErrorMessage("Google Sign-In was cancelled or failed.");
+      }
+    } catch (err: any) {
+      console.error("Google login failed:", err);
+      setAuthStep("login");
+      setErrorMessage(err.message || "Failed to log in via Google SSO.");
+    }
+  };
+
   // ACTUAL FACEBOOK POPUP LOGIN HANDLER
   const handleFacebookLogin = () => {
     setFbError("");
@@ -395,7 +425,7 @@ export function AuthGate({
                   setErrorMessage("");
                   setSuccessMessage("");
                 }}
-                className={`flex-1 pb-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
+                className={`flex-1 pb-2.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
                   loginTab === "email"
                     ? "border-indigo-500 text-indigo-400"
                     : "border-transparent text-slate-500 hover:text-slate-400"
@@ -406,10 +436,25 @@ export function AuthGate({
               <button
                 type="button"
                 onClick={() => {
+                  setLoginTab("google");
+                  setErrorMessage("");
+                  setSuccessMessage("");
+                }}
+                className={`flex-1 pb-2.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
+                  loginTab === "google"
+                    ? "border-indigo-500 text-indigo-400"
+                    : "border-transparent text-slate-500 hover:text-slate-400"
+                }`}
+              >
+                Google SSO
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   setLoginTab("facebook");
                   setFbError("");
                 }}
-                className={`flex-1 pb-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
+                className={`flex-1 pb-2.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
                   loginTab === "facebook"
                     ? "border-indigo-500 text-indigo-400"
                     : "border-transparent text-slate-500 hover:text-slate-400"
@@ -590,6 +635,43 @@ export function AuthGate({
                 >
                   <Facebook className="w-5 h-5 fill-current" />
                   Log In with Facebook Account
+                </button>
+              </div>
+            )}
+
+            {/* GOOGLE AUTHENTICATION */}
+            {loginTab === "google" && (
+              <div className="space-y-4">
+                <div className="text-center space-y-1">
+                  <h3 className="text-sm font-semibold text-slate-300">Google Single Sign-On</h3>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Log in with your Google Account to securely access your partitioned workspace and enable live Google Drive integration.
+                  </p>
+                </div>
+
+                {errorMessage && (
+                  <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-xl flex items-start gap-2.5 text-xs text-red-400 animate-shake">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{errorMessage}</span>
+                  </div>
+                )}
+
+                <div className="p-4 border border-slate-800 bg-indigo-950/15 rounded-2xl space-y-3 text-center">
+                  <div className="flex items-center justify-center gap-3 text-slate-300">
+                    <Chrome className="w-8 h-8 text-indigo-400" />
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    By signing in with Google, you authorize the workspace to authenticate your profile and manage connected project attachments directly in your Google Drive storage.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white hover:bg-slate-100 text-slate-900 rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer text-sm"
+                >
+                  <Chrome className="w-5 h-5 text-indigo-600" />
+                  Sign In with Google Account
                 </button>
               </div>
             )}
