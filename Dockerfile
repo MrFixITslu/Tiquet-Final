@@ -1,31 +1,60 @@
-# Stage 1: Build the React application
-FROM node:20-alpine AS build
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1 — Build the React/Vite frontend
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files first for better layer caching
-COPY package.json package-lock.json* ./
+# Install ALL dependencies (including devDeps for the build)
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Install dependencies (use ci if package-lock is present, else install)
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
-
-# Copy the rest of the application files
+# Copy source and build
 COPY . .
-
-# Build the production application
 RUN npm run build
 
-# Stage 2: Serve the application with Nginx on port 3000
-FROM nginx:alpine
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 — Production runtime (Node only, no build tools)
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS production
 
-# Copy the custom nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Security: run as a non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Copy build files from Stage 1 to Nginx public directory
-COPY --from=build /app/dist /usr/share/nginx/html
+WORKDIR /app
 
-# Expose port 3000
-EXPOSE 3000
+# Install production dependencies only
+COPY package.json package-lock.json ./
 
-# Start Nginx
-CMD ["nginx", "-g", "daemon off;"]
+# better-sqlite3 needs build tools; install then clean up
+RUN apk add --no-cache python3 make g++ && \
+    npm ci --omit=dev && \
+    apk del python3 make g++ && \
+    rm -rf /root/.npm /root/.node-gyp
+
+# Copy server source
+COPY server/ ./server/
+COPY scripts/ ./scripts/
+
+# Copy the built frontend from Stage 1
+COPY --from=builder /app/dist ./dist
+
+# ── Runtime volumes (mounted by docker-compose) ───────────────────────────────
+# /app/data      — SQLite database file (data.db)
+# /app/uploads   — user-uploaded files
+# /app/logs      — application and audit logs
+# /app/backups   — database backups
+RUN mkdir -p data uploads logs backups && \
+    chown -R appuser:appgroup /app
+
+USER appuser
+
+EXPOSE 3001
+
+# Graceful shutdown support
+STOPSIGNAL SIGTERM
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD wget -qO- http://localhost:3001/health || exit 1
+
+CMD ["node", "server/index.js"]

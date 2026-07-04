@@ -1,5 +1,5 @@
 {
-  "name": "V79 TIQUET Manager",
+  "name": "Tick-It",
   "description": "Custom automation to seamlessly track jobs from incoming request to final invoice and completion.",
   "requestFramePermissions": []
 }

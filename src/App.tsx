@@ -1,843 +1,388 @@
 import React, { useState, useEffect } from "react";
-import { Search, Bell, Shield, LogOut, CheckSquare, RefreshCw, Zap, ChevronDown, UserPlus, Clock, X } from "lucide-react";
+import { Search, Bell, LogOut } from "lucide-react";
 import { JobBoard } from "./components/JobBoard";
 import { Sidebar } from "./components/Sidebar";
+import { JobDetailView } from "./components/JobDetailView";
 import { JobRequestForm } from "./components/JobRequestForm";
 import { Dashboard } from "./components/Dashboard";
-import { Payroll } from "./components/Payroll";
-import { UserManagement } from "./components/UserManagement";
-import { FileRepository } from "./components/FileRepository";
-import { Invoices } from "./components/Invoices";
+
+const Payroll = React.lazy(() => import("./components/Payroll").then(m => ({ default: m.Payroll })));
+const UserManagement = React.lazy(() => import("./components/UserManagement").then(m => ({ default: m.UserManagement })));
+const FileRepository = React.lazy(() => import("./components/FileRepository").then(m => ({ default: m.FileRepository })));
+const Invoices = React.lazy(() => import("./components/Invoices").then(m => ({ default: m.Invoices })));
+
+import { Settings, BusinessSettings } from "./components/Settings";
+import { ClientPortal } from "./components/ClientPortal";
 import { Clients } from "./components/Clients";
-import { Settings } from "./components/Settings";
-import { AuthGate } from "./components/AuthGate";
-import { Job, Employee, PayrollRecord, AppUser, FileItem, Client, BusinessSettings, AuthenticatedUser, Business } from "./types";
+import { MyProfile } from "./components/MyProfile";
+import { NotificationDropdown, Notification } from "./components/NotificationDropdown";
+import { AccountSuspended } from "./components/AccountSuspended";
+import { SuperAdminLogin } from "./components/SuperAdminLogin";
+import { SuperAdminPortal } from "./components/SuperAdminPortal";
+import { SubscriptionPlans } from "./components/SubscriptionPlans";
+import { Help } from "./components/Help";
+import { Job, Employee, PayrollRecord, AppUser, FileItem } from "./types";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { Login } from "./components/Login";
+import { Signup } from "./components/Signup";
+import { apiFetch } from "./lib/api";
 
-// SEED DATA FOR DEMO CORPORATIONS
-
-const initialClients: Client[] = [
-  {
-    id: "c1",
-    name: "John Smith",
-    company: "Acme Corp",
-    email: "john@acmecorp.com",
-    phone: "+1 (555) 123-4567",
-    address: "123 Industrial Way, Springfield, IL 62704",
-    createdAt: new Date(Date.now() - 86400000 * 60).toISOString(),
-  },
-  {
-    id: "c2",
-    name: "Sarah Johnson",
-    company: "TechStart Inc",
-    email: "sarah@techstart.io",
-    phone: "+1 (555) 987-6543",
-    address: "456 Innovation Blvd, San Francisco, CA 94105",
-    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
-  },
-  {
-    id: "c3",
-    name: "Mike Miller",
-    company: "Fitness Plus",
-    email: "mike@fitnessplus.com",
-    phone: "+1 (555) 246-8101",
-    address: "789 Gym Rd, Austin, TX 78701",
-    createdAt: new Date(Date.now() - 86400000 * 15).toISOString(),
-  },
-];
-
-const initialJobs: Job[] = [
-  {
-    id: "1",
-    title: "Website Redesign",
-    client: "Acme Corp",
-    clientId: "c1",
-    description:
-      "Complete overhaul of the corporate website including new branding and e-commerce integration.",
-    status: "request",
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    dueDate: new Date(Date.now() + 86400000 * 10).toISOString(),
-    amount: 15000,
-    priority: "high",
-    assignedTo: "Alice Smith",
-    tags: ["design", "web"],
-    activityLog: [
-      {
-        id: "l1",
-        action: "Job request created",
-        timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
-        user: "System",
-      },
-    ],
-  },
-  {
-    id: "2",
-    title: "SEO Audit",
-    client: "TechStart Inc",
-    clientId: "c2",
-    description:
-      "Comprehensive SEO audit and keyword research for Q3 marketing push.",
-    status: "estimation",
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    dueDate: new Date(Date.now() + 86400000 * 3).toISOString(),
-    priority: "medium",
-    assignedTo: "Bob Jones",
-    tags: ["marketing", "seo"],
-    activityLog: [
-      {
-        id: "l2",
-        action: "Job request created",
-        timestamp: new Date(Date.now() - 86400000 * 5).toISOString(),
-        user: "System",
-      },
-      {
-        id: "l3",
-        action: "Moved from request to estimation",
-        timestamp: new Date(Date.now() - 86400000 * 4).toISOString(),
-        user: "Alice Smith",
-      },
-    ],
-  },
-  {
-    id: "3",
-    title: "Mobile App MVP",
-    client: "Fitness Plus",
-    clientId: "c3",
-    description:
-      "React Native mobile app MVP with user authentication and basic workout tracking.",
-    status: "in-progress",
-    createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
-    dueDate: new Date(Date.now() + 86400000 * 30).toISOString(),
-    amount: 25000,
-    priority: "high",
-    assignedTo: "Charlie Brown",
-    tags: ["mobile", "app"],
-    activityLog: [
-      {
-        id: "l4",
-        action: "Job request created",
-        timestamp: new Date(Date.now() - 86400000 * 14).toISOString(),
-        user: "System",
-      },
-      {
-        id: "l5",
-        action: "Moved from request to in-progress",
-        timestamp: new Date(Date.now() - 86400000 * 12).toISOString(),
-        user: "Bob Jones",
-      },
-    ],
-  },
-  {
-    id: "4",
-    title: "Logo Design",
-    client: "Fresh Bakery",
-    description: "New logo design and brand guidelines for local bakery chain.",
-    status: "review",
-    createdAt: new Date(Date.now() - 86400000 * 20).toISOString(),
-    dueDate: new Date(Date.now() - 86400000 * 1).toISOString(),
-    amount: 2500,
-    priority: "low",
-    assignedTo: "Dana White",
-    tags: ["branding", "logo"],
-    activityLog: [
-      {
-        id: "l6",
-        action: "Job request created",
-        timestamp: new Date(Date.now() - 86400000 * 20).toISOString(),
-        user: "System",
-      },
-    ],
-  },
-];
-
-const initialEmployees: Employee[] = [
-  {
-    id: "e1",
-    name: "Alice Smith",
-    role: "Project Manager",
-    salary: 5000,
-    workerType: "salary",
-    paymentMethod: "Bank Transfer",
-    status: "active",
-  },
-  {
-    id: "e2",
-    name: "Bob Jones",
-    role: "Designer",
-    salary: 40,
-    workerType: "hourly",
-    paymentMethod: "PayPal",
-    status: "active",
-    timeCards: [
-      {
-        id: "tc1",
-        date: "2026-06-25",
-        clockIn: "08:00",
-        clockOut: "17:00",
-        hoursWorked: 9,
-      },
-      {
-        id: "tc2",
-        date: "2026-06-26",
-        clockIn: "09:00",
-        clockOut: "17:00",
-        hoursWorked: 8,
-      },
-    ],
-  },
-  {
-    id: "e3",
-    name: "Charlie Brown",
-    role: "Developer",
-    salary: 6000,
-    workerType: "salary",
-    paymentMethod: "PayPal",
-    status: "active",
-  },
-];
-
-const initialUsers: AppUser[] = [
-  {
-    id: "u1",
-    name: "John Doe",
-    email: "john@example.com",
-    role: "Admin",
-    permissions: ["dashboard", "jobs", "new-request", "payroll", "invoices", "users", "files"],
-  },
-  {
-    id: "u2",
-    name: "Alice Smith",
-    email: "alice@example.com",
-    role: "Manager",
-    permissions: ["dashboard", "jobs", "new-request", "files"],
-  },
-];
-
-const initialFiles: FileItem[] = [
-  {
-    id: "f1",
-    name: "Brand_Guidelines_2024.pdf",
-    size: 2500000,
-    type: "application/pdf",
-    uploadedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-    uploadedBy: "John Doe",
-  },
-  {
-    id: "f2",
-    name: "Logo_Assets.zip",
-    size: 15000000,
-    type: "application/zip",
-    uploadedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    uploadedBy: "Alice Smith",
-  },
-];
-
-export default function App() {
-  const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(() => {
-    const saved = localStorage.getItem("tickit_current_user");
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  const [activeBusiness, setActiveBusiness] = useState<Business | null>(() => {
-    const saved = localStorage.getItem("tickit_active_business");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Business;
-        if (parsed.id === "biz_tickit" && (parsed.name === "Tick-It Enterprise" || parsed.settings.name === "Tick-It Enterprise")) {
-          parsed.name = "V79 TIQUET Enterprise";
-          parsed.settings.name = "V79 TIQUET Enterprise";
-          parsed.settings.email = "billing@v79-tiquet.com";
-          localStorage.setItem("tickit_active_business", JSON.stringify(parsed));
-        }
-        return parsed;
-      } catch (e) {}
-    }
-    return null;
-  });
+function MainApp() {
+  const { user, isLoading: authLoading, logout } = useAuth();
+  const [showSignup, setShowSignup] = useState(false);
+  const [isSuspended, setIsSuspended] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const [activeTab, setActiveTab] = useState("dashboard");
 
-  // Quick Action menu states
-  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
-  const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
-  const [isLogTimeModalOpen, setIsLogTimeModalOpen] = useState(false);
-
-  // Partitioned state variables loaded based on activeBusiness.id
+  const handleSetTab = (tab: string) => {
+    setActiveTab(tab);
+  };
   const [jobs, setJobs] = useState<Job[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [settings, setSettings] = useState<BusinessSettings>({
-    name: "",
-    address: "",
-    email: "",
-    phone: "",
-    logoUrl: "",
-    paymentTerms: "",
-    currency: "USD",
-    taxRate: 0,
-  });
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch partitioned database when activeBusiness changes
-  useEffect(() => {
-    if (!activeBusiness) return;
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
-    const bizId = activeBusiness.id;
+  const fetchData = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [jobsRes, employeesRes, settingsRes] = await Promise.all([
+        apiFetch("/api/jobs").then(res => {
+          if (res.status === 402) { setIsSuspended(true); throw new Error("suspended"); }
+          if (!res.ok) throw new Error("Failed to fetch jobs");
+          return res.json();
+        }),
+        apiFetch("/api/employees").then(res => {
+          if (!res.ok) throw new Error("Failed to fetch employees");
+          return res.json();
+        }),
+        apiFetch("/api/settings").then(res => {
+          if (!res.ok) throw new Error("Failed to fetch settings");
+          return res.json();
+        })
+      ]);
 
-    // Helper functions to load partition or fallback to seeds (for pre-seeded business) or defaults
-    const loadPartition = <T,>(key: string, seed: T): T => {
-      const stored = localStorage.getItem(`tickit_${bizId}_${key}`);
-      if (stored) {
-        try {
-          return JSON.parse(stored);
-        } catch (e) {
-          // parse error
-        }
-      }
-      
-      // Seeding logic: Only preseed standard demo businesses
-      const isPreseeded = bizId === "biz_tickit" || bizId === "biz_apex";
-      const finalSeed = isPreseeded ? seed : ([] as unknown as T);
-
-      localStorage.setItem(`tickit_${bizId}_${key}`, JSON.stringify(finalSeed));
-      return finalSeed;
-    };
-
-    // Load jobs
-    const loadedJobs = loadPartition<Job[]>("jobs", initialJobs);
-    setJobs(loadedJobs);
-
-    // Load clients
-    const loadedClients = loadPartition<Client[]>("clients", initialClients);
-    setClients(loadedClients);
-
-    // Load employees
-    const loadedEmployees = loadPartition<Employee[]>("employees", initialEmployees);
-    setEmployees(loadedEmployees);
-
-    // Load files
-    const loadedFiles = loadPartition<FileItem[]>("files", initialFiles);
-    setFiles(loadedFiles);
-
-    // Load payroll
-    const loadedPayroll = loadPartition<PayrollRecord[]>("payroll", []);
-    setPayrollRecords(loadedPayroll);
-
-    // Load users
-    const loadedUsers = loadPartition<AppUser[]>("users", initialUsers);
-    setUsers(loadedUsers);
-
-    // Load Settings
-    const storedSettings = localStorage.getItem(`tickit_${bizId}_settings`);
-    if (storedSettings) {
-      try {
-        const parsedSettings = JSON.parse(storedSettings) as BusinessSettings;
-        if (bizId === "biz_tickit" && parsedSettings.name === "Tick-It Enterprise") {
-          parsedSettings.name = "V79 TIQUET Enterprise";
-          parsedSettings.email = "billing@v79-tiquet.com";
-          localStorage.setItem(`tickit_${bizId}_settings`, JSON.stringify(parsedSettings));
-        }
-        setSettings(parsedSettings);
-      } catch (e) {}
-    } else {
-      localStorage.setItem(`tickit_${bizId}_settings`, JSON.stringify(activeBusiness.settings));
-      setSettings(activeBusiness.settings);
-    }
-
-  }, [activeBusiness]);
-
-  // Synchronize partitioned database on state changes
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_jobs`, JSON.stringify(jobs));
-  }, [jobs, activeBusiness]);
-
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_clients`, JSON.stringify(clients));
-  }, [clients, activeBusiness]);
-
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_employees`, JSON.stringify(employees));
-  }, [employees, activeBusiness]);
-
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_files`, JSON.stringify(files));
-  }, [files, activeBusiness]);
-
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_payroll`, JSON.stringify(payrollRecords));
-  }, [payrollRecords, activeBusiness]);
-
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_users`, JSON.stringify(users));
-  }, [users, activeBusiness]);
-
-  const handleUpdateSettings = (newSettings: BusinessSettings) => {
-    setSettings(newSettings);
-    if (activeBusiness) {
-      localStorage.setItem(`tickit_${activeBusiness.id}_settings`, JSON.stringify(newSettings));
-      
-      // Update business name inside activeBusiness representation too
-      const updatedBiz = { ...activeBusiness, name: newSettings.name, settings: newSettings };
-      setActiveBusiness(updatedBiz);
-      localStorage.setItem("tickit_active_business", JSON.stringify(updatedBiz));
-
-      // Update registered businesses list in localStorage
-      const storedBizs = localStorage.getItem("tickit_registered_businesses");
-      if (storedBizs) {
-        try {
-          const parsed = JSON.parse(storedBizs) as Business[];
-          const updatedList = parsed.map(b => b.id === activeBusiness.id ? updatedBiz : b);
-          localStorage.setItem("tickit_registered_businesses", JSON.stringify(updatedList));
-        } catch (e) {}
-      }
+      setJobs(jobsRes);
+      setEmployees(employeesRes);
+      setSettings(settingsRes);
+    } catch (err: any) {
+      if (err.message === "suspended") return;
+      console.error("Error fetching data:", err);
+      setError(err.message || "Failed to load application data. Please check your connection.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleAuthComplete = (user: AuthenticatedUser, business: Business) => {
-    setCurrentUser(user);
-    setActiveBusiness(business);
-    localStorage.setItem("tickit_current_user", JSON.stringify(user));
-    localStorage.setItem("tickit_active_business", JSON.stringify(business));
-    setActiveTab("dashboard");
+  const fetchNotifications = async () => {
+    try {
+      const res = await apiFetch("/api/notifications");
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data);
+      }
+    } catch (err) {
+      console.error("Error fetching notifications:", err);
+    }
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setActiveBusiness(null);
-    localStorage.removeItem("tickit_current_user");
-    localStorage.removeItem("tickit_active_business");
+  const markNotificationRead = async (id?: string) => {
+    try {
+      const res = await apiFetch("/api/notifications/read", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        if (id) {
+          setNotifications(notifications.map(n => n.id === id ? { ...n, isRead: 1 } : n));
+        } else {
+          setNotifications(notifications.map(n => ({ ...n, isRead: 1 })));
+        }
+      }
+    } catch (err) {
+      console.error("Error marking notification read:", err);
+    }
   };
 
-  const handleSwitchBusiness = () => {
-    setActiveBusiness(null);
-    localStorage.removeItem("tickit_active_business");
-  };
+  useEffect(() => {
+    if (user) {
+      fetchData();
+      fetchNotifications();
+      const interval = setInterval(fetchNotifications, 60000); // Poll every minute
+      return () => clearInterval(interval);
+    }
+  }, [user]);
 
-  // If session is unauthenticated or active business is not selected, direct to security gate
-  if (!currentUser || !activeBusiness) {
-    return <AuthGate onAuthComplete={handleAuthComplete} />;
+  // Clear selected job when switching tabs
+  useEffect(() => {
+    setSelectedJobId(null);
+  }, [activeTab]);
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center bg-slate-50 text-slate-400 gap-4">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="font-medium">Loading Auvic Solutions...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return showSignup ? <Signup onSwitchToLogin={() => setShowSignup(false)} /> : <Login onSwitchToSignup={() => setShowSignup(true)} />;
+  }
+
+  if (isSuspended) {
+    return <AccountSuspended onLogout={logout} />;
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center bg-slate-50 p-8 text-center">
+        <div className="bg-red-100 text-red-600 rounded-full p-4 mb-4">
+          <Search className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">Something went wrong</h2>
+        <p className="text-slate-500 mb-6 max-w-md">{error}</p>
+        <button
+          onClick={() => fetchData()}
+          className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-semibold hover:bg-indigo-700 transition-all"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
+  if (isLoading || !settings) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center bg-slate-50 text-slate-400 gap-4">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="font-medium">Loading Auvic Solutions...</p>
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-      
-      {/* SIDEBAR NAVIGATION - Scoped strictly to the active business */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        businessName={settings.name || activeBusiness.name}
-        onSwitchBusiness={handleSwitchBusiness}
-        onLogout={handleLogout}
-      />
+    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans">
+      <Sidebar activeTab={activeTab} setActiveTab={handleSetTab} onUpgradeClick={() => setShowUpgrade(true)} />
 
-      {/* Main Content Pane */}
+      {showUpgrade && <SubscriptionPlans onClose={() => setShowUpgrade(false)} />}
+
+      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Workspace Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-10">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center bg-slate-100 rounded-xl px-3 py-2 w-80 border border-slate-200">
-              <Search className="w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search jobs, clients, or files..."
-                className="bg-transparent border-none outline-none ml-2 text-sm w-full text-slate-700"
-              />
-            </div>
-            
-            <div className="hidden lg:flex items-center gap-1 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-full text-[10px] font-bold text-indigo-700 uppercase tracking-wide">
-              <Shield className="w-3.5 h-3.5" />
-              Tenant ID: {activeBusiness.id}
-            </div>
+        {/* Header */}
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
+          <div className="flex items-center bg-slate-100 rounded-lg px-3 py-2 w-96">
+            <Search className="w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search jobs, clients... or settings"
+              className="bg-transparent border-none outline-none ml-2 text-sm w-full"
+            />
           </div>
-
           <div className="flex items-center gap-4">
-            {/* Status indicator to reinforce absolute isolation and security */}
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-600 font-bold uppercase tracking-wider bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Isolated Space
-            </div>
-
-            {/* Quick Actions Dropdown */}
             <div className="relative">
-              <button
-                id="btn-quick-actions"
-                onClick={() => setIsQuickActionsOpen(!isQuickActionsOpen)}
-                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer"
+              <button 
+                type="button" 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className={`p-2 rounded-lg transition-colors relative ${showNotifications ? 'bg-slate-100 text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="View notifications" 
+                aria-label="View notifications"
               >
-                <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300 animate-pulse" />
-                <span>Quick Actions</span>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isQuickActionsOpen ? "rotate-180" : ""}`} />
+                <Bell className="w-6 h-6" />
+                {notifications.some(n => !n.isRead) && (
+                  <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+                )}
               </button>
-
-              {isQuickActionsOpen && (
-                <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 py-1.5 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="px-4 py-1.5 border-b border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Workspace Shortcuts</p>
-                  </div>
-                  
-                  <button
-                    onClick={() => {
-                      setIsNewClientModalOpen(true);
-                      setIsQuickActionsOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-xs font-bold text-slate-700 transition-colors cursor-pointer"
-                  >
-                    <UserPlus className="w-4 h-4 text-indigo-500" />
-                    New Client
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setIsLogTimeModalOpen(true);
-                      setIsQuickActionsOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left text-xs font-bold text-slate-700 transition-colors cursor-pointer"
-                  >
-                    <Clock className="w-4 h-4 text-emerald-500" />
-                    Log Time / Time Card
-                  </button>
-                </div>
+              
+              {showNotifications && (
+                <NotificationDropdown 
+                  notifications={notifications} 
+                  onMarkRead={markNotificationRead}
+                  onClose={() => setShowNotifications(false)}
+                />
               )}
             </div>
-
-            <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
-              {currentUser.photoUrl ? (
-                <img
-                  src={currentUser.photoUrl}
-                  alt={currentUser.name}
-                  className="w-8 h-8 rounded-full border-2 border-indigo-100 object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-xs uppercase">
-                  {currentUser.name.slice(0, 2)}
-                </div>
-              )}
-              <div className="hidden md:block text-left">
-                <p className="text-xs font-bold text-slate-900 leading-none">{currentUser.name}</p>
-                <p className="text-[10px] text-slate-400 font-semibold leading-none mt-1 truncate max-w-[120px]">{currentUser.email}</p>
+            <div className="flex items-center gap-2 border-l border-slate-200 pl-4 ml-2">
+              <div className="flex flex-col text-right hidden sm:flex">
+                <span className="text-sm font-bold text-slate-900">{user.name}</span>
+                <span className="text-xs text-slate-500">{user.role}</span>
               </div>
+              <button 
+                onClick={() => setActiveTab("profile")}
+                className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-semibold text-sm hover:ring-2 hover:ring-indigo-500 hover:ring-offset-2 transition-all"
+                title="My Profile"
+              >
+                {user.name.charAt(0)}
+              </button>
+              <button onClick={logout} title="Log out" className="ml-2 text-slate-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50">
+                <LogOut className="w-5 h-5"/>
+              </button>
             </div>
           </div>
         </header>
 
-        {/* Dynamic Component Render Area */}
-        <div className="flex-1 overflow-auto p-8">
-          {activeTab === "dashboard" && <Dashboard jobs={jobs} />}
-          {activeTab === "jobs" && (
-            <JobBoard
-              jobs={jobs}
-              setJobs={setJobs}
-              employees={employees}
-              clients={clients}
-              settings={settings}
-            />
-          )}
-          {activeTab === "clients" && (
-            <Clients
-              clients={clients}
-              setClients={setClients}
-              jobs={jobs}
-            />
-          )}
-          {activeTab === "payroll" && (
-            <Payroll
-              employees={employees}
-              setEmployees={setEmployees}
-              payrollRecords={payrollRecords}
-              setPayrollRecords={setPayrollRecords}
-            />
-          )}
-          {activeTab === "users" && (
-            <UserManagement users={users} setUsers={setUsers} />
-          )}
-          {activeTab === "files" && (
-            <FileRepository files={files} setFiles={setFiles} />
-          )}
-          {activeTab === "invoices" && (
-            <Invoices
-              jobs={jobs}
-              setJobs={setJobs}
-              employees={employees}
-              clients={clients}
-              settings={settings}
-            />
-          )}
-          {activeTab === "settings" && (
-            <Settings settings={settings} setSettings={handleUpdateSettings} />
-          )}
-          {activeTab === "new-request" && (
-            <div className="max-w-4xl mx-auto">
-              <JobRequestForm
+        {/* Content Area */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {selectedJobId ? (
+            <div className="flex-1 overflow-auto bg-white">
+              <JobDetailView
+                job={jobs.find(j => j.id === selectedJobId)!}
                 employees={employees}
-                clients={clients}
-                onSave={(jobData) => {
-                  const newJob: Job = {
-                    ...jobData,
-                    id: crypto.randomUUID(),
-                    createdAt: new Date().toISOString(),
-                    activityLog: [
-                      {
-                        id: crypto.randomUUID(),
-                        action: `Job request initiated for ${jobData.client}`,
-                        timestamp: new Date().toISOString(),
-                        user: currentUser.name,
-                      }
-                    ]
-                  };
-                  setJobs([newJob, ...jobs]);
-                  setActiveTab("jobs");
+                settings={settings}
+                onBack={() => setSelectedJobId(null)}
+                onUpdate={(updatedJob) => {
+                  setJobs(jobs.map(j => j.id === updatedJob.id ? updatedJob : j));
                 }}
               />
+            </div>
+          ) : (
+            <div className="flex-1 overflow-auto p-8">
+              <React.Suspense fallback={
+                <div className="flex h-full items-center justify-center text-slate-400 gap-2 animate-pulse">
+                  <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full"></div>
+                  <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full"></div>
+                  <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full"></div>
+                </div>
+              }>
+                {activeTab === "dashboard" && <Dashboard jobs={jobs} />}
+                {activeTab === "jobs" && (
+                  <JobBoard
+                    jobs={jobs}
+                    setJobs={setJobs}
+                    employees={employees}
+                    settings={settings}
+                    onSelectJob={setSelectedJobId}
+                  />
+                )}
+                {activeTab === "payroll" && (
+                  <Payroll
+                    employees={employees}
+                    setEmployees={setEmployees}
+                    payrollRecords={payrollRecords}
+                    setPayrollRecords={setPayrollRecords}
+                  />
+                )}
+                {activeTab === "users" && (
+                  <UserManagement users={users} setUsers={setUsers} />
+                )}
+                {activeTab === "files" && (
+                  <FileRepository files={files} setFiles={setFiles} />
+                )}
+                {activeTab === "invoices" && (
+                  <Invoices
+                    jobs={jobs}
+                    setJobs={setJobs}
+                    employees={employees}
+                    settings={settings}
+                    onSelectJob={setSelectedJobId}
+                  />
+                )}
+                {activeTab === "settings" && (
+                  <Settings settings={settings} setSettings={setSettings} />
+                )}
+                {activeTab === "clients" && <Clients />}
+                {activeTab === "new-request" && (
+                  <div className="max-w-4xl mx-auto">
+                    <JobRequestForm
+                      employees={employees}
+                      onSave={async (jobData) => {
+                        try {
+                          const newId = crypto.randomUUID();
+                          const response = await apiFetch('/api/jobs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              ...jobData,
+                              id: newId,
+                              createdAt: new Date().toISOString()
+                            })
+                          });
+                          if (response.ok) {
+                            const newJob = await response.json();
+                            setJobs([newJob, ...jobs]);
+                            setActiveTab("jobs");
+                          }
+                        } catch (error) {
+                          console.error("Error creating job:", error);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+                {activeTab === "profile" && <MyProfile />}
+                {activeTab === "help" && <Help />}
+              </React.Suspense>
+              
+              {!["dashboard", "jobs", "payroll", "users", "files", "invoices", "settings", "clients", "new-request", "profile", "help"].includes(activeTab) && (
+                <div className="flex items-center justify-center h-full text-slate-400">
+                  {activeTab} content coming soon
+                </div>
+              )}
             </div>
           )}
         </div>
       </main>
-
-      {/* New Client Quick Action Modal */}
-      {isNewClientModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden relative animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Add New Client</h3>
-              <button
-                onClick={() => setIsNewClientModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-50 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const target = e.currentTarget;
-              const name = (target.elements.namedItem("clientName") as HTMLInputElement).value;
-              const company = (target.elements.namedItem("clientCompany") as HTMLInputElement).value;
-              const email = (target.elements.namedItem("clientEmail") as HTMLInputElement).value;
-              const phone = (target.elements.namedItem("clientPhone") as HTMLInputElement).value;
-              const address = (target.elements.namedItem("clientAddress") as HTMLInputElement).value;
-              
-              const newClient = {
-                id: `c_${crypto.randomUUID().slice(0, 8)}`,
-                name,
-                company: company || "Individual",
-                email,
-                phone,
-                address,
-                createdAt: new Date().toISOString()
-              };
-              
-              setClients([newClient, ...clients]);
-              setIsNewClientModalOpen(false);
-              alert(`Successfully added new client: ${name} (${company || "Individual"})`);
-            }} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Contact Name *</label>
-                <input
-                  name="clientName"
-                  type="text"
-                  required
-                  placeholder="John Smith"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Company / Organization</label>
-                <input
-                  name="clientCompany"
-                  type="text"
-                  placeholder="e.g. Acme Corp"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Email *</label>
-                  <input
-                    name="clientEmail"
-                    type="email"
-                    required
-                    placeholder="john@example.com"
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Phone</label>
-                  <input
-                    name="clientPhone"
-                    type="text"
-                    placeholder="+1 (555) 000-0000"
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Billing Address</label>
-                <textarea
-                  name="clientAddress"
-                  placeholder="123 Corporate Way, City, ST"
-                  rows={2}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800 resize-none"
-                />
-              </div>
-              <div className="pt-2 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsNewClientModalOpen(false)}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-colors shadow-md cursor-pointer"
-                >
-                  Add Client
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Log Time / Time Card Quick Action Modal */}
-      {isLogTimeModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden relative animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Log Hours / Time Card</h3>
-              <button
-                onClick={() => setIsLogTimeModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-50 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            {employees.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">
-                <p className="text-sm">No employees configured for this tenant partition.</p>
-                <p className="text-xs text-slate-400 mt-2">Please register an employee in the Payroll panel first.</p>
-              </div>
-            ) : (
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const target = e.currentTarget;
-                const employeeId = (target.elements.namedItem("employeeId") as HTMLSelectElement).value;
-                const date = (target.elements.namedItem("logDate") as HTMLInputElement).value;
-                const hours = parseFloat((target.elements.namedItem("logHours") as HTMLInputElement).value);
-                const clockIn = (target.elements.namedItem("clockIn") as HTMLInputElement).value || "09:00";
-                const clockOut = (target.elements.namedItem("clockOut") as HTMLInputElement).value || "17:00";
-
-                const matchedEmployee = employees.find(emp => emp.id === employeeId);
-                if (!matchedEmployee) return;
-
-                const newTimeCard = {
-                  id: `tc_${crypto.randomUUID().slice(0, 8)}`,
-                  date,
-                  clockIn,
-                  clockOut,
-                  hoursWorked: hours
-                };
-
-                const updatedEmployees = employees.map(emp => {
-                  if (emp.id === employeeId) {
-                    const currentCards = emp.timeCards || [];
-                    return {
-                      ...emp,
-                      hoursWorked: (emp.hoursWorked || 0) + hours,
-                      timeCards: [newTimeCard, ...currentCards]
-                    };
-                  }
-                  return emp;
-                });
-
-                setEmployees(updatedEmployees);
-                setIsLogTimeModalOpen(false);
-                alert(`Successfully logged ${hours} hours for ${matchedEmployee.name} on ${date}.`);
-              }} className="p-6 space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Select Employee *</label>
-                  <select
-                    name="employeeId"
-                    required
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                  >
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.id}>{emp.name} ({emp.role} - {emp.workerType})</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Date *</label>
-                    <input
-                      name="logDate"
-                      type="date"
-                      required
-                      defaultValue={new Date().toISOString().split("T")[0]}
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Hours Worked *</label>
-                    <input
-                      name="logHours"
-                      type="number"
-                      required
-                      min="0.1"
-                      max="24"
-                      step="0.1"
-                      defaultValue="8"
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Clock In (Optional)</label>
-                    <input
-                      name="clockIn"
-                      type="time"
-                      defaultValue="09:00"
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Clock Out (Optional)</label>
-                    <input
-                      name="clockOut"
-                      type="time"
-                      defaultValue="17:00"
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm text-slate-800"
-                    />
-                  </div>
-                </div>
-                <div className="pt-2 flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsLogTimeModalOpen(false)}
-                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-colors shadow-md cursor-pointer"
-                  >
-                    Save Time Card
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+
+export default function App() {
+  const params = new URLSearchParams(window.location.search);
+  const queryToken = params.get("token");
+  const isSuperAdmin = params.get("superadmin") === "true";
+  
+  // Also check pathname for /portal/TOKEN format
+  const pathParts = window.location.pathname.split('/portal/');
+  const pathToken = pathParts.length > 1 ? pathParts[1] : null;
+
+  const token = queryToken || pathToken;
+
+  if (token) {
+    return <ClientPortal token={token} />;
+  }
+
+  // Super Admin Portal
+  if (isSuperAdmin) {
+    return <SuperAdminApp />;
+  }
+
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
+  );
+}
+
+// ─── Super Admin App Shell ─────────────────────────────────────────────────
+function SuperAdminApp() {
+  const [saToken, setSaToken] = React.useState<string | null>(null);
+  const [saAdmin, setSaAdmin] = React.useState<{ id: string; email: string } | null>(null);
+
+  const handleSALogin = (token: string, admin: { id: string; email: string }) => {
+    setSaToken(token);
+    setSaAdmin(admin);
+  };
+
+  const handleSALogout = () => {
+    setSaToken(null);
+    setSaAdmin(null);
+  };
+
+  if (!saToken || !saAdmin) {
+    return <SuperAdminLogin onLogin={handleSALogin} />;
+  }
+
+  return <SuperAdminPortal admin={saAdmin} onLogout={handleSALogout} />;
+}
+

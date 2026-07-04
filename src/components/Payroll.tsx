@@ -192,8 +192,8 @@ export function Payroll({
                   </td>
                   <td className="px-6 py-4 text-sm font-semibold text-slate-900">
                     {employee.workerType === "hourly" 
-                      ? `$${employee.hourlyRate}/hr (${employee.hoursWorked}h)`
-                      : `$${employee.salary.toLocaleString()}${employee.workerType === "bi-weekly" ? "/bi-wk" : "/mo"}`}
+                      ? `$${(employee.hourlyRate || 0).toLocaleString()}/hr (${(employee.hoursWorked || 0)}h)`
+                      : `$${(employee.salary || 0).toLocaleString()}${employee.workerType === "bi-weekly" ? "/bi-wk" : "/mo"}`}
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-600">
                     {employee.paymentMethod}
@@ -271,7 +271,7 @@ export function Payroll({
                     {record.employeeName}
                   </td>
                   <td className="px-6 py-4 text-sm font-semibold text-slate-900">
-                    ${record.amount.toLocaleString()}
+                    ${(record.amount || 0).toLocaleString()}
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-600">
                     {new Date(record.date).toLocaleDateString()}

@@ -43,15 +43,34 @@ export interface JobNote {
   user: string;
 }
 
-export type WorkerType = "salary" | "hourly" | "bi-weekly";
-
-export interface TimeCard {
+export interface JobMessage {
   id: string;
-  date: string;
-  clockIn: string;
-  clockOut: string;
-  hoursWorked: number;
+  job_id: string;
+  sender: string;
+  content: string;
+  timestamp: string;
 }
+
+export interface JobLineItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface Deliverable {
+  id: string;
+  title: string;
+  type: "digital" | "physical";
+  // Digital
+  fileUrl?: string; // e.g. AWS S3 link or Vercel Blob
+  // Physical
+  deliveryMethod?: "pickup" | "delivery";
+  deliveryFee?: number;
+  trackingInfo?: string;
+}
+
+export type WorkerType = "salary" | "hourly" | "bi-weekly";
 
 export interface Employee {
   id: string;
@@ -65,7 +84,6 @@ export interface Employee {
   status: "active" | "inactive";
   isCheckedIn?: boolean;
   lastCheckIn?: string;
-  timeCards?: TimeCard[];
 }
 
 export interface PayrollRecord {
@@ -77,21 +95,19 @@ export interface PayrollRecord {
   status: "pending" | "paid";
 }
 
-export interface Client {
+export interface TimeLog {
   id: string;
-  name: string;
-  company: string;
-  email: string;
-  phone: string;
-  address: string;
-  createdAt: string;
+  employeeId: string;
+  startTime: string;
+  endTime?: string;
+  description?: string;
+  status: JobStatus;
 }
 
 export interface Job {
   id: string;
   title: string;
-  client: string; // Keeping for backward compatibility or display name
-  clientId?: string; // Link to Client entity
+  client: string;
   description: string;
   status: JobStatus;
   createdAt: string;
@@ -100,20 +116,22 @@ export interface Job {
   priority: "low" | "medium" | "high";
   invoiceNotes?: string;
   assignedTo?: string;
+  clientEmail?: string;
+  secureToken?: string;
   tags?: string[];
   activityLog?: ActivityLogEntry[];
   notes?: JobNote[];
+  timeLogs?: TimeLog[];
+  messages?: JobMessage[];
+  depositPaid?: boolean;
+  quoteApproved?: number;
+  lineItems?: JobLineItem[];
+  deliverables?: Deliverable[];
+  timerStartedAt?: string | null;
+  stageAssignments?: Partial<Record<JobStatus, string>>;
 }
 
-export type PagePermission =
-  | "dashboard"
-  | "jobs"
-  | "payroll"
-  | "invoices"
-  | "users"
-  | "files"
-  | "new-request"
-  | "clients";
+export type PagePermission = "dashboard" | "jobs" | "payroll" | "invoices" | "users" | "files" | "new-request";
 
 export interface AppUser {
   id: string;
@@ -123,31 +141,15 @@ export interface AppUser {
   permissions: PagePermission[];
 }
 
-export interface BusinessSettings {
-  name: string;
-  address: string;
-  email: string;
-  phone: string;
-  logoUrl: string;
-  paymentTerms: string;
-  currency: string;
-  taxRate: number;
-}
-
-export interface Business {
+export interface Client {
   id: string;
   name: string;
-  ownerEmail: string;
-  invitedUsers?: string[];
-  settings: BusinessSettings;
-}
-
-export interface AuthenticatedUser {
-  id: string;
-  name: string;
-  email: string;
-  photoUrl?: string;
-  provider: "google" | "apple";
+  email?: string;
+  phone?: string;
+  company?: string;
+  address?: string;
+  notes?: string;
+  createdAt: string;
 }
 
 export interface FileItem {

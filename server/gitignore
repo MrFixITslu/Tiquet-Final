@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Runtime data (never commit real or test databases)
+*.db
+*.db-shm
+*.db-wal
+data.db
+test-data.db*
+
+# Uploads (user data — should live on a volume, not in git)
+uploads/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# PM2
+.pm2/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test artifacts
+tests/*.png
+coverage/

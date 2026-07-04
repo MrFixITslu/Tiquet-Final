@@ -9,7 +9,7 @@ const ALL_PERMISSIONS: { id: PagePermission; label: string }[] = [
   { id: "payroll", label: "Payroll" },
   { id: "invoices", label: "Invoices" },
   { id: "files", label: "File Repository" },
-  { id: "users", label: "User Management" },
+  { id: "users", label: "Team Management" },
 ];
 
 export function UserManagement({
@@ -32,9 +32,9 @@ export function UserManagement({
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">User Management</h2>
+          <h2 className="text-2xl font-bold text-slate-900">Team Management</h2>
           <p className="text-slate-500 text-sm mt-1">
-            Manage system users and their access permissions.
+            Manage your team members and their access permissions.
           </p>
         </div>
         <button
@@ -42,10 +42,11 @@ export function UserManagement({
             setEditingUser(null);
             setIsModalOpen(true);
           }}
+          title="Add new team member"
           className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-sm"
         >
           <UserPlus className="w-4 h-4" />
-          Add User
+          Add Team Member
         </button>
       </div>
 
@@ -53,7 +54,7 @@ export function UserManagement({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">User</th>
+              <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Member</th>
               <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Role</th>
               <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Permissions</th>
               <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
@@ -94,12 +95,14 @@ export function UserManagement({
                         setEditingUser(user);
                         setIsModalOpen(true);
                       }}
+                      title={`Edit member ${user.name}`}
                       className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                     >
                       <Shield className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDelete(user.id)}
+                      title={`Delete member ${user.name}`}
                       className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -157,9 +160,9 @@ function UserModal({
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
           <h3 className="text-lg font-bold text-slate-900">
-            {user ? "Edit User Permissions" : "Add New User"}
+            {user ? "Edit Member Permissions" : "Add New Team Member"}
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} title="Close modal" className="text-slate-400 hover:text-slate-600">
             <Trash2 className="w-5 h-5 rotate-45" />
           </button>
         </div>
@@ -204,6 +207,7 @@ function UserModal({
               <label className="block text-sm font-semibold text-slate-700 mb-1">Role</label>
               <select
                 value={role}
+                title="Select team member role"
                 onChange={(e) => setRole(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none bg-white"
               >
@@ -252,7 +256,7 @@ function UserModal({
               type="submit"
               className="px-6 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95"
             >
-              {user ? "Update User" : "Create User"}
+              {user ? "Update Member" : "Create Member"}
             </button>
           </div>
         </form>

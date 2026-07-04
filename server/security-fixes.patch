@@ -1,0 +1,152 @@
+diff --git a/node_modules/better-sqlite3/build/Release/better_sqlite3.node b/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+deleted file mode 100755
+index 8df942f4..00000000
+Binary files a/node_modules/better-sqlite3/build/Release/better_sqlite3.node and /dev/null differ
+diff --git a/server/db.js b/server/db.js
+index 1ac6d29c..9dee01ac 100644
+--- a/server/db.js
++++ b/server/db.js
+@@ -284,9 +284,14 @@ for (const acc of allAccounts) {
+   }
+ }
+ 
+-// Check if seeding is needed
++// Check if seeding is needed.
++// SECURITY: demo/seed data (including a login-capable "john@example.com" admin
++// account with a fixed, publicly-known password hash) must NEVER be created on
++// a real production database. Seeding now requires NODE_ENV !== 'production',
++// or an explicit opt-in via SEED_DEMO_DATA=true for staging/demo environments.
+ const jobsCount = db.prepare('SELECT count(*) as count FROM jobs').get();
+-if (jobsCount.count === 0) {
++const allowSeed = process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_DATA === 'true';
++if (jobsCount.count === 0 && allowSeed) {
+   console.log("Seeding database with initial data...");
+ 
+   const insertJob = db.prepare(`
+@@ -380,6 +385,8 @@ if (jobsCount.count === 0) {
+ 
+   seedTransaction();
+   console.log("Database seeded successfully.");
++} else if (jobsCount.count === 0) {
++  console.log("Empty database detected in production — skipping demo data seed (set SEED_DEMO_DATA=true to override).");
+ }
+ 
+ export default db;
+diff --git a/server/index.js b/server/index.js
+index 84f6932b..3360baeb 100644
+--- a/server/index.js
++++ b/server/index.js
+@@ -876,6 +876,10 @@ app.put("/api/clients/:id", authenticateToken, (req, res) => {
+ // Job Messages (Chat)
+ app.get("/api/jobs/:id/messages", authenticateToken, (req, res) => {
+     try {
++        // SECURITY: verify the job belongs to the caller's account before returning messages
++        const job = db.prepare("SELECT id FROM jobs WHERE id = ? AND account_id = ?").get(req.params.id, req.accountId);
++        if (!job) return res.status(404).json({ error: "Job not found" });
++
+         const messages = getJobMessages(req.params.id);
+         res.json(messages);
+     } catch (error) {
+@@ -890,19 +894,20 @@ app.post("/api/jobs/:id/messages", authenticateToken, (req, res) => {
+     const timestamp = new Date().toISOString();
+ 
+     try {
++        // SECURITY: verify the job belongs to the caller's account before writing a message to it
++        const job = db.prepare("SELECT client FROM jobs WHERE id = ? AND account_id = ?").get(jobId, req.accountId);
++        if (!job) return res.status(404).json({ error: "Job not found" });
++
+         db.prepare("INSERT INTO job_messages (id, job_id, sender, content, timestamp, account_id) VALUES (?, ?, ?, ?, ?, ?)")
+             .run(id, jobId, sender, content, timestamp, req.accountId);
+ 
+         // Append to project log
+-        const job = db.prepare("SELECT client FROM jobs WHERE id = ? AND account_id = ?").get(jobId, req.accountId);
+-        if (job) {
+-            appendProjectLog(req.accountId, job.client, jobId, {
+-                type: 'message',
+-                action: `Message sent by ${sender}`,
+-                user: sender,
+-                details: { content: content.slice(0, 200) }
+-            });
+-        }
++        appendProjectLog(req.accountId, job.client, jobId, {
++            type: 'message',
++            action: `Message sent by ${sender}`,
++            user: sender,
++            details: { content: (content || '').slice(0, 200) }
++        });
+ 
+         res.status(201).json({ id, jobId, sender, content, timestamp });
+     } catch (error) {
+diff --git a/server/security.js b/server/security.js
+index df31a782..a9788f6e 100644
+--- a/server/security.js
++++ b/server/security.js
+@@ -58,11 +58,15 @@ export const secureFilePath = (uploadsRoot, accountId, relativePath) => {
+ 
+     if (!resolved.startsWith(rootWithSep)) return null;
+ 
+-    // The path must start with the accountId segment
++    // The path's first segment MUST equal the caller's own (sanitized) account ID.
++    // Without this check, a relativePath containing "../<otherAccountId>/..." would
++    // normalize (via path.join/path.resolve) to a path still inside uploadsRoot but
++    // belonging to a DIFFERENT tenant — a cross-account file-disclosure bug.
+     const relative = resolved.slice(rootWithSep.length);
+     const firstSegment = relative.split(path.sep)[0];
+-    // Allow sanitized accountId forms (see sanitizeForPath in index.js)
+-    if (!firstSegment || !relative.startsWith(firstSegment)) return null;
++    const expectedSegment = String(accountId || '').replace(/[^a-zA-Z0-9_\-. ]/g, '_').trim().slice(0, 60);
++
++    if (!firstSegment || !expectedSegment || firstSegment !== expectedSegment) return null;
+ 
+     return resolved;
+ };
+diff --git a/server/stripe.js b/server/stripe.js
+index d43150fc..b1355bd6 100644
+--- a/server/stripe.js
++++ b/server/stripe.js
+@@ -9,6 +9,9 @@
+ import { v4 as uuidv4 } from 'uuid';
+ import db from './db.js';
+ 
++const isProduction = process.env.NODE_ENV === 'production';
++const errMsg = (e) => (isProduction ? 'Internal Server Error' : e.message);
++
+ const PLANS = {
+   starter:    { name: 'Starter',    price: parseInt(process.env.PLAN_PRICE_STARTER    || '29'),  features: ['Up to 3 users', '50 jobs/month', 'Email support', 'Client portal'] },
+   pro:        { name: 'Pro',        price: parseInt(process.env.PLAN_PRICE_PRO        || '79'),  features: ['Up to 15 users', 'Unlimited jobs', 'Priority support', 'File repository', 'Payroll', '2FA security'] },
+@@ -48,7 +51,7 @@ export function registerStripeRoutes(app, authenticateToken) {
+         planDetails: PLANS[sub.plan] || null,
+       });
+     } catch (e) {
+-      res.status(500).json({ error: e.message });
++      res.status(500).json({ error: errMsg(e) });
+     }
+   });
+ 
+@@ -72,7 +75,7 @@ export function registerStripeRoutes(app, authenticateToken) {
+         message: 'Stripe is in simulated mode. No real charge will occur.',
+       });
+     } catch (e) {
+-      res.status(500).json({ error: e.message });
++      res.status(500).json({ error: errMsg(e) });
+     }
+   });
+ 
+@@ -108,7 +111,7 @@ export function registerStripeRoutes(app, authenticateToken) {
+       const sub = db.prepare("SELECT * FROM subscriptions WHERE account_id = ?").get(req.accountId);
+       res.json({ success: true, subscription: sub, planDetails: PLANS[plan] });
+     } catch (e) {
+-      res.status(500).json({ error: e.message });
++      res.status(500).json({ error: errMsg(e) });
+     }
+   });
+ 
+@@ -126,7 +129,7 @@ export function registerStripeRoutes(app, authenticateToken) {
+ 
+       res.json({ success: true, message: 'Subscription canceled. Access continues until period end.' });
+     } catch (e) {
+-      res.status(500).json({ error: e.message });
++      res.status(500).json({ error: errMsg(e) });
+     }
+   });
+ 

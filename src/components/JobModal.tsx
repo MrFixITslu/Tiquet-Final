@@ -8,13 +8,13 @@ export function JobModal({
   onClose,
   onSave,
   employees,
-  clients,
+  clients: _clients,  // reserved for future use
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSave: (job: Omit<Job, "id" | "createdAt">) => void;
   employees: Employee[];
-  clients: Client[];
+  clients?: Client[];
 }) {
   if (!isOpen) return null;
 
@@ -36,7 +36,6 @@ export function JobModal({
         <div className="max-h-[80vh] overflow-y-auto">
           <JobRequestForm 
             employees={employees}
-            clients={clients}
             onSave={(job) => {
               onSave(job);
               onClose();

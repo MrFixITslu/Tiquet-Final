@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useRef } from "react";
 import {
   Building2,
   Mail,
@@ -10,8 +10,20 @@ import {
   Palette,
   Save,
   Image as ImageIcon,
+  CheckCircle2,
 } from "lucide-react";
-import { BusinessSettings } from "../types";
+import { apiFetch } from "../lib/api";
+
+export interface BusinessSettings {
+  name: string;
+  address: string;
+  email: string;
+  phone: string;
+  logoUrl: string;
+  paymentTerms: string;
+  currency: string;
+  taxRate: number;
+}
 
 export function Settings({
   settings,
@@ -20,12 +32,47 @@ export function Settings({
   settings: BusinessSettings;
   setSettings: (settings: BusinessSettings) => void;
 }) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setSettings({
       ...settings,
       [name]: name === "taxRate" ? parseFloat(value) : value,
     });
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveSuccess(false);
+    try {
+      const response = await apiFetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      if (response.ok) {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      }
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setSettings({ ...settings, logoUrl: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   return (
@@ -45,16 +92,33 @@ export function Settings({
           </p>
         </div>
         <div className="md:col-span-2 space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 relative">
+            {saveSuccess && (
+              <div className="absolute top-4 right-4 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 border border-emerald-200 animate-in fade-in slide-in-from-top-4">
+                <CheckCircle2 className="w-4 h-4" />
+                Settings Saved
+              </div>
+            )}
             <div className="flex items-center gap-4 mb-4">
-              <div className="w-20 h-20 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden relative group">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageFileChange}
+                accept="image/*"
+                title="Upload company logo image"
+                className="hidden"
+              />
+              <div 
+                className="w-20 h-20 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden relative group cursor-pointer"
+                onClick={() => fileInputRef.current?.click()}
+              >
                 {settings.logoUrl ? (
                   <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                 ) : (
                   <ImageIcon className="w-8 h-8 text-slate-300" />
                 )}
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
-                  <span className="text-[10px] text-white font-bold uppercase">Change</span>
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="text-xs text-white font-bold uppercase">Change</span>
                 </div>
               </div>
               <div className="flex-1">
@@ -78,6 +142,7 @@ export function Settings({
                   <input
                     type="text"
                     name="name"
+                    title="Business name"
                     value={settings.name}
                     onChange={handleChange}
                     className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
@@ -91,6 +156,7 @@ export function Settings({
                   <input
                     type="email"
                     name="email"
+                    title="Email address"
                     value={settings.email}
                     onChange={handleChange}
                     className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
@@ -104,6 +170,7 @@ export function Settings({
                   <input
                     type="text"
                     name="phone"
+                    title="Phone number"
                     value={settings.phone}
                     onChange={handleChange}
                     className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
@@ -129,6 +196,7 @@ export function Settings({
                 <MapPin className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                 <textarea
                   name="address"
+                  title="Business address"
                   value={settings.address}
                   onChange={handleChange}
                   rows={3}
@@ -156,6 +224,7 @@ export function Settings({
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">Currency</label>
                 <select
                   name="currency"
+                  title="Currency"
                   value={settings.currency}
                   onChange={handleChange}
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
@@ -172,6 +241,7 @@ export function Settings({
                 <input
                   type="number"
                   name="taxRate"
+                  title="Default tax rate"
                   value={settings.taxRate}
                   onChange={handleChange}
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
@@ -183,6 +253,7 @@ export function Settings({
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">Default Payment Terms</label>
               <textarea
                 name="paymentTerms"
+                title="Default payment terms"
                 value={settings.paymentTerms}
                 onChange={handleChange}
                 rows={3}
@@ -197,9 +268,17 @@ export function Settings({
         <button className="px-6 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-xl transition-colors">
           Discard Changes
         </button>
-        <button className="px-8 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center gap-2">
-          <Save className="w-4 h-4" />
-          Save Settings
+        <button 
+          onClick={handleSave}
+          disabled={isSaving}
+          className="px-8 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
+        >
+          {isSaving ? (
+             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+             <Save className="w-4 h-4" />
+          )}
+          {isSaving ? "Saving..." : "Save Settings"}
         </button>
       </div>
     </div>
