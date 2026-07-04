@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Search, Bell, Shield, LogOut, CheckSquare, RefreshCw, Zap, ChevronDown, UserPlus, Clock, X } from "lucide-react";
+import { Search, Bell, Shield, LogOut, CheckSquare, RefreshCw, Zap, ChevronDown, UserPlus, Clock, X, Sun, Moon } from "lucide-react";
 import { JobBoard } from "./components/JobBoard";
 import { Sidebar } from "./components/Sidebar";
 import { JobRequestForm } from "./components/JobRequestForm";
@@ -14,223 +14,8 @@ import { AuthGate } from "./components/AuthGate";
 import { Job, Employee, PayrollRecord, AppUser, FileItem, Client, BusinessSettings, AuthenticatedUser, Business } from "./types";
 import { generateUUID } from "./utils";
 
-// SEED DATA FOR DEMO CORPORATIONS
+// SECURE MULTI-TENANT WORKSPACE ROOT
 
-const initialClients: Client[] = [
-  {
-    id: "c1",
-    name: "John Smith",
-    company: "Acme Corp",
-    email: "john@acmecorp.com",
-    phone: "+1 (555) 123-4567",
-    address: "123 Industrial Way, Springfield, IL 62704",
-    createdAt: new Date(Date.now() - 86400000 * 60).toISOString(),
-  },
-  {
-    id: "c2",
-    name: "Sarah Johnson",
-    company: "TechStart Inc",
-    email: "sarah@techstart.io",
-    phone: "+1 (555) 987-6543",
-    address: "456 Innovation Blvd, San Francisco, CA 94105",
-    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
-  },
-  {
-    id: "c3",
-    name: "Mike Miller",
-    company: "Fitness Plus",
-    email: "mike@fitnessplus.com",
-    phone: "+1 (555) 246-8101",
-    address: "789 Gym Rd, Austin, TX 78701",
-    createdAt: new Date(Date.now() - 86400000 * 15).toISOString(),
-  },
-];
-
-const initialJobs: Job[] = [
-  {
-    id: "1",
-    title: "Website Redesign",
-    client: "Acme Corp",
-    clientId: "c1",
-    description:
-      "Complete overhaul of the corporate website including new branding and e-commerce integration.",
-    status: "request",
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    dueDate: new Date(Date.now() + 86400000 * 10).toISOString(),
-    amount: 15000,
-    priority: "high",
-    assignedTo: "Alice Smith",
-    tags: ["design", "web"],
-    activityLog: [
-      {
-        id: "l1",
-        action: "Job request created",
-        timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
-        user: "System",
-      },
-    ],
-  },
-  {
-    id: "2",
-    title: "SEO Audit",
-    client: "TechStart Inc",
-    clientId: "c2",
-    description:
-      "Comprehensive SEO audit and keyword research for Q3 marketing push.",
-    status: "estimation",
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    dueDate: new Date(Date.now() + 86400000 * 3).toISOString(),
-    priority: "medium",
-    assignedTo: "Bob Jones",
-    tags: ["marketing", "seo"],
-    activityLog: [
-      {
-        id: "l2",
-        action: "Job request created",
-        timestamp: new Date(Date.now() - 86400000 * 5).toISOString(),
-        user: "System",
-      },
-      {
-        id: "l3",
-        action: "Moved from request to estimation",
-        timestamp: new Date(Date.now() - 86400000 * 4).toISOString(),
-        user: "Alice Smith",
-      },
-    ],
-  },
-  {
-    id: "3",
-    title: "Mobile App MVP",
-    client: "Fitness Plus",
-    clientId: "c3",
-    description:
-      "React Native mobile app MVP with user authentication and basic workout tracking.",
-    status: "in-progress",
-    createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
-    dueDate: new Date(Date.now() + 86400000 * 30).toISOString(),
-    amount: 25000,
-    priority: "high",
-    assignedTo: "Charlie Brown",
-    tags: ["mobile", "app"],
-    activityLog: [
-      {
-        id: "l4",
-        action: "Job request created",
-        timestamp: new Date(Date.now() - 86400000 * 14).toISOString(),
-        user: "System",
-      },
-      {
-        id: "l5",
-        action: "Moved from request to in-progress",
-        timestamp: new Date(Date.now() - 86400000 * 12).toISOString(),
-        user: "Bob Jones",
-      },
-    ],
-  },
-  {
-    id: "4",
-    title: "Logo Design",
-    client: "Fresh Bakery",
-    description: "New logo design and brand guidelines for local bakery chain.",
-    status: "review",
-    createdAt: new Date(Date.now() - 86400000 * 20).toISOString(),
-    dueDate: new Date(Date.now() - 86400000 * 1).toISOString(),
-    amount: 2500,
-    priority: "low",
-    assignedTo: "Dana White",
-    tags: ["branding", "logo"],
-    activityLog: [
-      {
-        id: "l6",
-        action: "Job request created",
-        timestamp: new Date(Date.now() - 86400000 * 20).toISOString(),
-        user: "System",
-      },
-    ],
-  },
-];
-
-const initialEmployees: Employee[] = [
-  {
-    id: "e1",
-    name: "Alice Smith",
-    role: "Project Manager",
-    salary: 5000,
-    workerType: "salary",
-    paymentMethod: "Bank Transfer",
-    status: "active",
-  },
-  {
-    id: "e2",
-    name: "Bob Jones",
-    role: "Designer",
-    salary: 40,
-    workerType: "hourly",
-    paymentMethod: "PayPal",
-    status: "active",
-    timeCards: [
-      {
-        id: "tc1",
-        date: "2026-06-25",
-        clockIn: "08:00",
-        clockOut: "17:00",
-        hoursWorked: 9,
-      },
-      {
-        id: "tc2",
-        date: "2026-06-26",
-        clockIn: "09:00",
-        clockOut: "17:00",
-        hoursWorked: 8,
-      },
-    ],
-  },
-  {
-    id: "e3",
-    name: "Charlie Brown",
-    role: "Developer",
-    salary: 6000,
-    workerType: "salary",
-    paymentMethod: "PayPal",
-    status: "active",
-  },
-];
-
-const initialUsers: AppUser[] = [
-  {
-    id: "u1",
-    name: "John Doe",
-    email: "john@example.com",
-    role: "Admin",
-    permissions: ["dashboard", "jobs", "new-request", "payroll", "invoices", "users", "files"],
-  },
-  {
-    id: "u2",
-    name: "Alice Smith",
-    email: "alice@example.com",
-    role: "Manager",
-    permissions: ["dashboard", "jobs", "new-request", "files"],
-  },
-];
-
-const initialFiles: FileItem[] = [
-  {
-    id: "f1",
-    name: "Brand_Guidelines_2024.pdf",
-    size: 2500000,
-    type: "application/pdf",
-    uploadedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-    uploadedBy: "John Doe",
-  },
-  {
-    id: "f2",
-    name: "Logo_Assets.zip",
-    size: 15000000,
-    type: "application/zip",
-    uploadedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    uploadedBy: "Alice Smith",
-  },
-];
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(() => {
@@ -242,18 +27,30 @@ export default function App() {
     const saved = localStorage.getItem("tickit_active_business");
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as Business;
-        if (parsed.id === "biz_tickit" && (parsed.name === "Tick-It Enterprise" || parsed.settings.name === "Tick-It Enterprise")) {
-          parsed.name = "V79 TIQUET Enterprise";
-          parsed.settings.name = "V79 TIQUET Enterprise";
-          parsed.settings.email = "billing@v79-tiquet.com";
-          localStorage.setItem("tickit_active_business", JSON.stringify(parsed));
-        }
-        return parsed;
+        return JSON.parse(saved) as Business;
       } catch (e) {}
     }
     return null;
   });
+
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    return (localStorage.getItem("tickit_theme") as "light" | "dark") || "light";
+  });
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    localStorage.setItem("tickit_theme", nextTheme);
+  };
 
   const [activeTab, setActiveTab] = useState("dashboard");
 
@@ -286,8 +83,8 @@ export default function App() {
 
     const bizId = activeBusiness.id;
 
-    // Helper functions to load partition or fallback to seeds (for pre-seeded business) or defaults
-    const loadPartition = <T,>(key: string, seed: T): T => {
+    // Helper functions to load partition or fallback to clean defaults
+    const loadPartition = <T,>(key: string, fallbackValue: T): T => {
       const stored = localStorage.getItem(`tickit_${bizId}_${key}`);
       if (stored) {
         try {
@@ -297,36 +94,41 @@ export default function App() {
         }
       }
       
-      // Seeding logic: Only preseed standard demo businesses
-      const isPreseeded = bizId === "biz_tickit" || bizId === "biz_apex";
-      const finalSeed = isPreseeded ? seed : ([] as unknown as T);
-
-      localStorage.setItem(`tickit_${bizId}_${key}`, JSON.stringify(finalSeed));
-      return finalSeed;
+      localStorage.setItem(`tickit_${bizId}_${key}`, JSON.stringify(fallbackValue));
+      return fallbackValue;
     };
 
     // Load jobs
-    const loadedJobs = loadPartition<Job[]>("jobs", initialJobs);
+    const loadedJobs = loadPartition<Job[]>("jobs", []);
     setJobs(loadedJobs);
 
     // Load clients
-    const loadedClients = loadPartition<Client[]>("clients", initialClients);
+    const loadedClients = loadPartition<Client[]>("clients", []);
     setClients(loadedClients);
 
     // Load employees
-    const loadedEmployees = loadPartition<Employee[]>("employees", initialEmployees);
+    const loadedEmployees = loadPartition<Employee[]>("employees", []);
     setEmployees(loadedEmployees);
 
     // Load files
-    const loadedFiles = loadPartition<FileItem[]>("files", initialFiles);
+    const loadedFiles = loadPartition<FileItem[]>("files", []);
     setFiles(loadedFiles);
 
     // Load payroll
     const loadedPayroll = loadPartition<PayrollRecord[]>("payroll", []);
     setPayrollRecords(loadedPayroll);
 
-    // Load users
-    const loadedUsers = loadPartition<AppUser[]>("users", initialUsers);
+    // Load users (Add current tenant administrator as the first user if none exist)
+    const defaultUsers: AppUser[] = currentUser ? [
+      {
+        id: currentUser.id,
+        name: currentUser.name,
+        email: currentUser.email,
+        role: "Admin",
+        permissions: ["dashboard", "jobs", "new-request", "payroll", "invoices", "users", "files"]
+      }
+    ] : [];
+    const loadedUsers = loadPartition<AppUser[]>("users", defaultUsers);
     setUsers(loadedUsers);
 
     // Load Settings
@@ -334,11 +136,6 @@ export default function App() {
     if (storedSettings) {
       try {
         const parsedSettings = JSON.parse(storedSettings) as BusinessSettings;
-        if (bizId === "biz_tickit" && parsedSettings.name === "Tick-It Enterprise") {
-          parsedSettings.name = "V79 TIQUET Enterprise";
-          parsedSettings.email = "billing@v79-tiquet.com";
-          localStorage.setItem(`tickit_${bizId}_settings`, JSON.stringify(parsedSettings));
-        }
         setSettings(parsedSettings);
       } catch (e) {}
     } else {
@@ -496,6 +293,19 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* Theme Toggle Switch */}
+            <button
+              onClick={toggleTheme}
+              title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+              className="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition-all active:scale-95 cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-200/50"
+            >
+              {theme === "light" ? (
+                <Moon className="w-4.5 h-4.5 text-slate-600" />
+              ) : (
+                <Sun className="w-4.5 h-4.5 text-amber-400" />
+              )}
+            </button>
 
             <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
               {currentUser.photoUrl ? (

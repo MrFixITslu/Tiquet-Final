@@ -1,1 +1,145 @@
 @import "tailwindcss";
+
+/* High-fidelity dark mode styles when the .dark class is applied */
+.dark {
+  color-scheme: dark;
+}
+
+/* Base styles for dark mode */
+.dark body {
+  background-color: #0b0f19 !important;
+  color: #f8fafc !important;
+}
+
+/* Standard panel background overrides */
+.dark .bg-slate-50, 
+.dark main,
+.dark .flex-1.overflow-auto {
+  background-color: #0b0f19 !important;
+}
+
+.dark .bg-white {
+  background-color: #111827 !important; /* deep slate-900 */
+}
+
+/* Text overrides */
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark h2,
+.dark h3,
+.dark .text-gray-900 {
+  color: #f8fafc !important;
+}
+
+.dark .text-slate-700,
+.dark .text-gray-700 {
+  color: #cbd5e1 !important; /* slate-300 */
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-gray-500 {
+  color: #94a3b8 !important; /* slate-400 */
+}
+
+/* Border overrides */
+.dark .border-slate-200,
+.dark .border-slate-100,
+.dark .border-slate-150,
+.dark .border-gray-200,
+.dark .border-b,
+.dark .border-t,
+.dark .border-r,
+.dark .border-l {
+  border-color: #1f2937 !important; /* gray-800 */
+}
+
+/* Background hover overrides */
+.dark .bg-slate-100 {
+  background-color: #1f2937 !important;
+}
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: #1f2937 !important;
+}
+
+.dark header.bg-white {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+}
+
+/* Forms & inputs */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #1f2937 !important;
+  color: #f8fafc !important;
+  border-color: #374151 !important; /* gray-700 */
+}
+
+.dark input::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Sub-panels and inner elements */
+.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}
+.dark .bg-purple-50 {
+  background-color: rgba(168, 85, 247, 0.1) !important;
+}
+.dark .bg-green-50 {
+  background-color: rgba(34, 197, 94, 0.1) !important;
+}
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+}
+
+/* Chart text and grids */
+.dark text {
+  fill: #94a3b8 !important;
+}
+.dark .recharts-cartesian-grid-horizontal line,
+.dark .recharts-cartesian-grid-vertical line {
+  stroke: #1f2937 !important;
+}
+
+/* Dropdowns and quick actions */
+.dark .bg-white.shadow-xl,
+.dark .shadow-2xl {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Table elements */
+.dark th {
+  background-color: #1f2937 !important;
+  color: #94a3b8 !important;
+  border-color: #1f2937 !important;
+}
+
+.dark td {
+  border-color: #1f2937 !important;
+}
+
+.dark tr:hover td {
+  background-color: rgba(31, 41, 55, 0.5) !important;
+}
+
+/* Scrollbar tweaks */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #0b0f19;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 4px;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}

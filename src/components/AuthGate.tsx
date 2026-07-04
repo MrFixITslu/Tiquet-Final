@@ -47,11 +47,8 @@ export function AuthGate({
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-  // Facebook Auth State
-  const [fbAppId, setFbAppId] = useState(() => {
-    const metaEnv = (import.meta as any).env;
-    return (metaEnv && metaEnv.VITE_FACEBOOK_APP_ID) || "1048472535783210";
-  });
+  // Facebook Auth State retrieved from environment
+  const fbAppId = (import.meta as any).env.VITE_FACEBOOK_APP_ID || "";
   const [fbError, setFbError] = useState("");
 
   // Form states for creating a new business
@@ -60,112 +57,34 @@ export function AuthGate({
   const [newBusinessPhone, setNewBusinessPhone] = useState("");
   const [newBusinessAddress, setNewBusinessAddress] = useState("");
 
-  // Seed default admin and fetch registered users from localStorage
+  // Fetch registered users from localStorage cleanly without any demo seeding
   const getRegisteredUsers = (): StoredUser[] => {
     const stored = localStorage.getItem("tickit_registered_users");
-    const defaultUsers: StoredUser[] = [
-      {
-        id: "usr_admin",
-        name: "Administrator",
-        email: "admin@company.com",
-        password: "password",
-        photoUrl: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-      }
-    ];
-
     if (stored) {
       try {
-        const parsed = JSON.parse(stored) as StoredUser[];
-        if (parsed.length > 0) {
-          // Merge with default admin if not present
-          if (!parsed.some(u => u.email === "admin@company.com")) {
-            parsed.push(defaultUsers[0]);
-            localStorage.setItem("tickit_registered_users", JSON.stringify(parsed));
-          }
-          return parsed;
-        }
+        return JSON.parse(stored) as StoredUser[];
       } catch (e) {
         // Fallback
       }
     }
-
-    localStorage.setItem("tickit_registered_users", JSON.stringify(defaultUsers));
-    return defaultUsers;
+    return [];
   };
 
-  const getDemoBusinesses = (ownerEmail: string): Business[] => {
+  // Fetch registered businesses from localStorage cleanly without any demo seeding
+  const getRegisteredBusinesses = (): Business[] => {
     const stored = localStorage.getItem("tickit_registered_businesses");
-    let parsed: Business[] = [];
     if (stored) {
       try {
-        parsed = JSON.parse(stored) as Business[];
+        return JSON.parse(stored) as Business[];
       } catch (e) {
         // Fallback
       }
     }
-
-    const defaultList: Business[] = [
-      {
-        id: "biz_tickit",
-        name: "V79 TIQUET Enterprise",
-        ownerEmail: "system",
-        settings: {
-          name: "V79 TIQUET Enterprise",
-          address: "123 Creative Plaza, Design District, NY 10001",
-          email: "billing@v79-tiquet.com",
-          phone: "+1 (555) 000-1234",
-          logoUrl: "https://picsum.photos/200/100?random=1",
-          paymentTerms: "Please make payment within 30 days of receiving this invoice.",
-          currency: "USD",
-          taxRate: 5,
-          notificationNewJobAlert: true,
-          notificationStatusChangeAlert: true,
-        }
-      },
-      {
-        id: "biz_apex",
-        name: "Apex Global Consulting",
-        ownerEmail: "system",
-        settings: {
-          name: "Apex Global Consulting",
-          address: "99 Financial Ave, Floor 42, London EC1A",
-          email: "finance@apex-consult.com",
-          phone: "+44 20 7946 0192",
-          logoUrl: "https://picsum.photos/200/100?random=2",
-          paymentTerms: "Due immediately upon receipt. Late payments incur interest.",
-          currency: "EUR",
-          taxRate: 15,
-          notificationNewJobAlert: true,
-          notificationStatusChangeAlert: true,
-        }
-      }
-    ];
-
-    if (parsed && parsed.length > 0) {
-      const migrated = parsed.map(biz => {
-        if (biz.id === "biz_tickit" && (biz.name === "Tick-It Enterprise" || biz.settings.name === "Tick-It Enterprise")) {
-          return {
-            ...biz,
-            name: "V79 TIQUET Enterprise",
-            settings: {
-              ...biz.settings,
-              name: "V79 TIQUET Enterprise",
-              email: "billing@v79-tiquet.com"
-            }
-          };
-        }
-        return biz;
-      });
-      localStorage.setItem("tickit_registered_businesses", JSON.stringify(migrated));
-      return migrated;
-    }
-
-    localStorage.setItem("tickit_registered_businesses", JSON.stringify(defaultList));
-    return defaultList;
+    return [];
   };
 
   const [businesses, setBusinesses] = useState<Business[]>(() => {
-    return getDemoBusinesses("temp");
+    return getRegisteredBusinesses();
   });
 
   const handleSelectBusiness = (biz: Business) => {
@@ -176,6 +95,14 @@ export function AuthGate({
   const handleCreateBusiness = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tempUser || !newBusinessName.trim()) return;
+
+    // Users can only register 1 business per subscription
+    const userBusinesses = businesses.filter((biz) => biz.ownerEmail === tempUser.email);
+    if (userBusinesses.length >= 1) {
+      setErrorMessage("Subscription Limit Reached: You are only allowed to register 1 business division per subscription.");
+      setAuthStep("business_select");
+      return;
+    }
 
     const newBiz: Business = {
       id: `biz_${generateUUID().slice(0, 8)}`,
@@ -314,7 +241,7 @@ export function AuthGate({
   const handleFacebookLogin = () => {
     setFbError("");
     if (!fbAppId.trim()) {
-      setFbError("Facebook App ID is required to connect your actual account.");
+      setFbError("Facebook App ID is not configured. Please define VITE_FACEBOOK_APP_ID in your environment variables to enable Facebook login.");
       return;
     }
 
@@ -347,7 +274,7 @@ export function AuthGate({
         const accessToken = params.get("access_token");
 
         if (accessToken) {
-          setLoadingText("Fetching actual Facebook profile info...");
+          setLoadingText("Fetching Facebook profile info...");
           setAuthStep("loading");
 
           try {
@@ -370,18 +297,8 @@ export function AuthGate({
             setAuthStep("business_select");
           } catch (error: any) {
             console.error("Facebook profile fetch failed:", error);
-            // Graceful Sandbox Fallback
-            // If the App ID entered is in developer sandbox mode (only lets registered test accounts log in),
-            // or if the Graph API rejects the token in the iframe, provide a high-fidelity logged-in session.
-            const sandboxUser: AuthenticatedUser = {
-              id: `fb_sandbox_${generateUUID().slice(0, 8)}`,
-              name: "Actual Facebook Account (Sandbox)",
-              email: "facebook.test@gmail.com",
-              provider: "facebook",
-              photoUrl: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80"
-            };
-            setTempUser(sandboxUser);
-            setAuthStep("business_select");
+            setFbError(error.message || "Failed to fetch Facebook profile.");
+            setAuthStep("login");
           }
         } else {
           setFbError("Facebook login failed: no access token returned in redirect.");
@@ -415,266 +332,168 @@ export function AuthGate({
 
         {/* LOGIN CHANNELS */}
         {authStep === "login" && (
-          <div className="space-y-5">
-            {/* Tab navigation */}
-            <div className="flex border-b border-slate-800">
+          <div className="space-y-6">
+            {/* SOCIAL SSO QUICK ACTIONS */}
+            <div className="space-y-3">
+              <div className="text-center space-y-1 mb-2">
+                <h3 className="text-sm font-semibold text-slate-300">
+                  Select Login Provider
+                </h3>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Authenticate securely to isolate your workspace and load cloud integrations.
+                </p>
+              </div>
+
+              {/* Google Button */}
               <button
                 type="button"
-                onClick={() => {
-                  setLoginTab("email");
-                  setErrorMessage("");
-                  setSuccessMessage("");
-                }}
-                className={`flex-1 pb-2.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
-                  loginTab === "email"
-                    ? "border-indigo-500 text-indigo-400"
-                    : "border-transparent text-slate-500 hover:text-slate-400"
-                }`}
+                onClick={handleGoogleLogin}
+                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white hover:bg-slate-50 text-slate-900 rounded-xl font-bold transition-all shadow-md hover:shadow-indigo-500/10 active:scale-[0.99] cursor-pointer text-sm border border-slate-200"
+                id="sso-google-btn"
               >
-                Email Access
+                <Chrome className="w-5 h-5 text-indigo-600" />
+                Sign In with Google Account
               </button>
+
+              {/* Facebook Button */}
               <button
                 type="button"
-                onClick={() => {
-                  setLoginTab("google");
-                  setErrorMessage("");
-                  setSuccessMessage("");
-                }}
-                className={`flex-1 pb-2.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
-                  loginTab === "google"
-                    ? "border-indigo-500 text-indigo-400"
-                    : "border-transparent text-slate-500 hover:text-slate-400"
-                }`}
+                onClick={handleFacebookLogin}
+                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#1877F2] hover:bg-[#166FE5] text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.99] cursor-pointer text-sm"
+                id="sso-facebook-btn"
               >
-                Google SSO
+                <Facebook className="w-5 h-5 fill-current" />
+                Sign In with Facebook Profile
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginTab("facebook");
-                  setFbError("");
-                }}
-                className={`flex-1 pb-2.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
-                  loginTab === "facebook"
-                    ? "border-indigo-500 text-indigo-400"
-                    : "border-transparent text-slate-500 hover:text-slate-400"
-                }`}
-              >
-                Facebook SSO
-              </button>
+
+              {fbError && (
+                <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-xl flex items-start gap-2.5 text-xs text-red-400">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{fbError}</span>
+                </div>
+              )}
             </div>
 
-            {/* EMAIL LOGIN & REGISTRATION */}
-            {loginTab === "email" && (
-              <form onSubmit={handleEmailAuth} className="space-y-4">
-                <div className="text-center space-y-1">
-                  <h3 className="text-sm font-semibold text-slate-300">
-                    {isRegistering ? "Create a Secure Tenant Profile" : "Access Your Partitioned Space"}
-                  </h3>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    {isRegistering 
-                      ? "Register an email account to initiate full multi-tenant business partitions."
-                      : "Provide credentials to retrieve database divisions securely."}
-                  </p>
+            {/* SEPARATOR */}
+            <div className="relative flex py-2 items-center">
+              <div className="flex-grow border-t border-slate-800"></div>
+              <span className="flex-shrink mx-4 text-[10px] text-slate-500 font-bold uppercase tracking-wider">or continue with email</span>
+              <div className="flex-grow border-t border-slate-800"></div>
+            </div>
+
+            {/* EMAIL LOGIN & REGISTRATION FORM */}
+            <form onSubmit={handleEmailAuth} className="space-y-4">
+              <div className="text-center space-y-1">
+                <h3 className="text-sm font-semibold text-slate-300">
+                  {isRegistering ? "Create a Secure Tenant Profile" : "Email & Password Access"}
+                </h3>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  {isRegistering 
+                    ? "Register an email account to initiate full multi-tenant business partitions."
+                    : "Provide credentials to retrieve your database divisions securely."}
+                </p>
+              </div>
+
+              {errorMessage && (
+                <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-xl flex items-start gap-2.5 text-xs text-red-400 animate-shake">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{errorMessage}</span>
                 </div>
+              )}
 
-                {errorMessage && (
-                  <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-xl flex items-start gap-2.5 text-xs text-red-400 animate-shake">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{errorMessage}</span>
-                  </div>
-                )}
+              {successMessage && (
+                <div className="p-3 bg-emerald-950/40 border border-emerald-900/50 rounded-xl flex items-start gap-2.5 text-xs text-emerald-400">
+                  <Check className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
 
-                {successMessage && (
-                  <div className="p-3 bg-emerald-950/40 border border-emerald-900/50 rounded-xl flex items-start gap-2.5 text-xs text-emerald-400">
-                    <Check className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{successMessage}</span>
-                  </div>
-                )}
-
-                <div className="space-y-3.5">
-                  {isRegistering && (
-                    <div className="space-y-1">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                        Full Name
-                      </label>
-                      <div className="relative">
-                        <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                        <input
-                          type="text"
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          placeholder="e.g. Elizabeth Bennet"
-                          className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
-                        />
-                      </div>
-                    </div>
-                  )}
-
+              <div className="space-y-3.5">
+                {isRegistering && (
                   <div className="space-y-1">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      Email Address
+                      Full Name
                     </label>
                     <div className="relative">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                      <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                       <input
-                        type="email"
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="e.g. elizabeth@domain.com"
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="e.g. Elizabeth Bennet"
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
                       />
                     </div>
                   </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      Password
-                    </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full pl-10 pr-10 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-400 cursor-pointer"
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md active:scale-[0.98] cursor-pointer mt-2"
-                >
-                  {isRegistering ? "Register Account" : "Sign In Securely"}
-                </button>
-
-                <div className="text-center pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsRegistering(!isRegistering);
-                      setErrorMessage("");
-                      setSuccessMessage("");
-                    }}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer underline underline-offset-4"
-                  >
-                    {isRegistering 
-                      ? "Already have an account? Sign In" 
-                      : "Don't have an email partition? Create Account"}
-                  </button>
-                </div>
-
-                {!isRegistering && (
-                  <div className="pt-2 px-3 py-2 border border-slate-900 bg-slate-900/30 rounded-xl text-center">
-                    <p className="text-[10px] text-slate-500 font-medium">
-                      Demo Admin Account: <span className="font-bold text-indigo-400">admin@company.com</span> / <span className="font-bold text-indigo-400">password</span>
-                    </p>
-                  </div>
-                )}
-              </form>
-            )}
-
-            {/* FACEBOOK AUTHENTICATION */}
-            {loginTab === "facebook" && (
-              <div className="space-y-4">
-                <div className="text-center space-y-1">
-                  <h3 className="text-sm font-semibold text-slate-300">Actual Facebook Integration</h3>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Connect using your real Facebook developer app credentials to fetch authentic profile details.
-                  </p>
-                </div>
-
-                {fbError && (
-                  <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-xl flex items-start gap-2.5 text-xs text-red-400">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{fbError}</span>
-                  </div>
                 )}
 
-                <div className="space-y-3 p-4 border border-slate-800 bg-slate-900/20 rounded-2xl">
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                        Facebook App ID (Client ID)
-                      </label>
-                      <span className="text-[9px] text-indigo-400 font-semibold">Required</span>
-                    </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    Email Address
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                     <input
-                      type="text"
-                      value={fbAppId}
-                      onChange={(e) => setFbAppId(e.target.value)}
-                      placeholder="e.g. 1048472535783210"
-                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600 font-mono"
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="e.g. elizabeth@domain.com"
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
                     />
                   </div>
-
-                  <div className="flex items-start gap-2 text-[10px] text-slate-500 bg-slate-900/40 p-2.5 rounded-xl border border-slate-850">
-                    <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                    <span className="leading-normal">
-                      We've supplied our pre-configured OAuth client ID. To use your own, configure a Web Platform callback pointing to: <span className="font-mono text-indigo-300 break-all">{window.location.origin}/</span>
-                    </span>
-                  </div>
                 </div>
 
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-400 cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md active:scale-[0.98] cursor-pointer mt-2"
+              >
+                {isRegistering ? "Register Account" : "Sign In Securely"}
+              </button>
+
+              <div className="text-center pt-1">
                 <button
                   type="button"
-                  onClick={handleFacebookLogin}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#1877F2] hover:bg-[#166FE5] text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer text-sm"
+                  onClick={() => {
+                    setIsRegistering(!isRegistering);
+                    setErrorMessage("");
+                    setSuccessMessage("");
+                  }}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer underline underline-offset-4"
                 >
-                  <Facebook className="w-5 h-5 fill-current" />
-                  Log In with Facebook Account
+                  {isRegistering 
+                    ? "Already have an account? Sign In" 
+                    : "Don't have an email partition? Create Account"}
                 </button>
               </div>
-            )}
 
-            {/* GOOGLE AUTHENTICATION */}
-            {loginTab === "google" && (
-              <div className="space-y-4">
-                <div className="text-center space-y-1">
-                  <h3 className="text-sm font-semibold text-slate-300">Google Single Sign-On</h3>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Log in with your Google Account to securely access your partitioned workspace and enable live Google Drive integration.
-                  </p>
-                </div>
 
-                {errorMessage && (
-                  <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-xl flex items-start gap-2.5 text-xs text-red-400 animate-shake">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{errorMessage}</span>
-                  </div>
-                )}
-
-                <div className="p-4 border border-slate-800 bg-indigo-950/15 rounded-2xl space-y-3 text-center">
-                  <div className="flex items-center justify-center gap-3 text-slate-300">
-                    <Chrome className="w-8 h-8 text-indigo-400" />
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    By signing in with Google, you authorize the workspace to authenticate your profile and manage connected project attachments directly in your Google Drive storage.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white hover:bg-slate-100 text-slate-900 rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer text-sm"
-                >
-                  <Chrome className="w-5 h-5 text-indigo-600" />
-                  Sign In with Google Account
-                </button>
-              </div>
-            )}
+            </form>
             
             <div className="h-px bg-slate-800" />
             <p className="text-[10px] text-slate-600 text-center leading-normal">
@@ -748,14 +567,45 @@ export function AuthGate({
             </div>
 
             <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setAuthStep("create_business")}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer text-sm"
-              >
-                <PlusCircle className="w-4 h-4" />
-                Register New Custom Business
-              </button>
+              {(() => {
+                const userBusinesses = businesses.filter((biz) => biz.ownerEmail === tempUser.email);
+                const limitReached = userBusinesses.length >= 1;
+                
+                if (limitReached) {
+                  return (
+                    <div className="space-y-3">
+                      <div className="p-3 bg-indigo-950/40 border border-indigo-900/50 rounded-xl text-xs text-slate-300 flex items-start gap-2.5">
+                        <AlertCircle className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold text-white text-left">Subscription Limit Reached</p>
+                          <p className="text-[10.5px] text-slate-400 text-left mt-0.5 leading-relaxed">
+                            Your current subscription package allows registering exactly **1 business division**. To add more workspaces, please contact sales to upgrade.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 text-slate-500 border border-slate-750/50 rounded-xl font-bold text-sm cursor-not-allowed opacity-60"
+                      >
+                        <Lock className="w-4 h-4" />
+                        Register New Division (Limit Reached)
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setAuthStep("create_business")}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer text-sm"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Register New Custom Business
+                  </button>
+                );
+              })()}
             </div>
           </div>
         )}
