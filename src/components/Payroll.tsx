@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Employee, PayrollRecord } from "../types";
+import { generateUUID } from "../utils";
 import {
   Users,
   DollarSign,
@@ -42,7 +43,7 @@ export function Payroll({
         amount = (e.hourlyRate || 0) * (e.hoursWorked || 0);
       }
       return {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         employeeId: e.id,
         employeeName: e.name,
         amount: amount,
@@ -322,7 +323,7 @@ export function Payroll({
         <AddEmployeeModal
           onClose={() => setIsAddEmployeeModalOpen(false)}
           onSave={(emp) => {
-            setEmployees([...employees, { ...emp, id: crypto.randomUUID() }]);
+            setEmployees([...employees, { ...emp, id: generateUUID() }]);
             setIsAddEmployeeModalOpen(false);
           }}
         />

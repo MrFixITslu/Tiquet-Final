@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Briefcase, Check, Sparkles, Building2, Shield, PlusCircle, ArrowRight } from "lucide-react";
 import { AuthenticatedUser, Business, BusinessSettings } from "../types";
+import { generateUUID } from "../utils";
 
 export function AuthGate({
   onAuthComplete,
@@ -27,7 +28,7 @@ export function AuthGate({
       setLoadingText("Establishing multi-tenant session isolation handshake...");
       setTimeout(() => {
         const user: AuthenticatedUser = {
-          id: `usr_${crypto.randomUUID().slice(0, 8)}`,
+          id: `usr_${generateUUID().slice(0, 8)}`,
           name: provider === "google" ? "Johnathan Doe" : "Alexander Smith",
           email: provider === "google" ? "john.doe@gmail.com" : "a.smith@icloud.com",
           provider,
@@ -37,8 +38,20 @@ export function AuthGate({
         };
         setTempUser(user);
         setAuthStep("business_select");
-      }, 1200);
-    }, 1200);
+      }, 150);
+    }, 150);
+  };
+
+  const handleInstantLogin = () => {
+    const user: AuthenticatedUser = {
+      id: "usr_demo",
+      name: "Johnathan Doe",
+      email: "john.doe@gmail.com",
+      provider: "google",
+      photoUrl: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80"
+    };
+    const defaultList = getDemoBusinesses("john.doe@gmail.com");
+    onAuthComplete(user, defaultList[0]);
   };
 
   const getDemoBusinesses = (ownerEmail: string): Business[] => {
@@ -128,7 +141,7 @@ export function AuthGate({
     if (!tempUser || !newBusinessName.trim()) return;
 
     const newBiz: Business = {
-      id: `biz_${crypto.randomUUID().slice(0, 8)}`,
+      id: `biz_${generateUUID().slice(0, 8)}`,
       name: newBusinessName,
       ownerEmail: tempUser.email,
       settings: {
@@ -187,9 +200,24 @@ export function AuthGate({
             <div className="space-y-3">
               <button
                 type="button"
-                id="btn-google-login"
+                onClick={handleInstantLogin}
+                className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white rounded-xl font-bold transition-all shadow-md shadow-indigo-950/40 active:scale-[0.98] cursor-pointer text-sm"
+              >
+                <Sparkles className="w-4 h-4 text-indigo-100" />
+                Instant Demo Access (Bypass Login)
+              </button>
+
+              <div className="flex items-center my-4">
+                <div className="flex-1 h-px bg-slate-800/80" />
+                <span className="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Or Simulated Options</span>
+                <div className="flex-1 h-px bg-slate-800/80" />
+              </div>
+
+              <button
+                type="button"
+                id="btn-workspace-google-sim"
                 onClick={() => handleThirdPartyLogin("google")}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white hover:bg-slate-50 text-slate-900 rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer"
+                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white hover:bg-slate-50 text-slate-900 rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer text-sm"
               >
                 {/* Google Icon (Custom styled SVG) */}
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -210,20 +238,20 @@ export function AuthGate({
                     d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.45-3.45C17.93 1.19 15.24 0 12 0 7.19 0 3.1 3.85.91 7.68l3.4 2.63c1.08-3.24 4.11-5.56 7.69-5.56z"
                   />
                 </svg>
-                Sign in with Google
+                Google SSO (Simulated)
               </button>
 
               <button
                 type="button"
-                id="btn-apple-login"
+                id="btn-workspace-apple-sim"
                 onClick={() => handleThirdPartyLogin("apple")}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer border border-slate-700"
+                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer border border-slate-700 text-sm"
               >
                 {/* Apple Icon */}
                 <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
                   <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-.96.04-2.13.64-2.82 1.45-.6.69-1.12 1.84-.98 2.94.1 0 2.15.48 2.81-1.33z" />
                 </svg>
-                Sign in with Apple
+                Apple ID SSO (Simulated)
               </button>
             </div>
             

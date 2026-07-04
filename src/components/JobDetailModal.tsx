@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Job, Employee, JobNote, Client, BusinessSettings } from "../types";
+import { generateUUID } from "../utils";
 import {
   X,
   FileText,
@@ -253,7 +254,7 @@ export function JobDetailModal({
   const handleAddNote = () => {
     if (!newNote.trim()) return;
     const note: JobNote = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       text: newNote,
       timestamp: new Date().toISOString(),
       user: "Current User",

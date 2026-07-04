@@ -3,6 +3,7 @@ import { Job, JobStatus, ActivityLogEntry, COLUMNS, Employee, Client, BusinessSe
 import { Plus, MoreHorizontal, Clock, DollarSign, ArrowRight, ArrowLeft } from "lucide-react";
 import { JobModal } from "./JobModal";
 import { JobDetailModal } from "./JobDetailModal";
+import { generateUUID } from "../utils";
 
 export function JobBoard({
   jobs,
@@ -25,7 +26,7 @@ export function JobBoard({
       jobs.map((job) => {
         if (job.id === jobId) {
           const newLog: ActivityLogEntry = {
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             action: `Moved from ${job.status} to ${newStatus}`,
             timestamp: new Date().toISOString(),
             user: "Current User", // In a real app, this would be the logged-in user
@@ -44,7 +45,7 @@ export function JobBoard({
   const handleSaveNewJob = (jobData: Omit<Job, "id" | "createdAt">) => {
     const newJob: Job = {
       ...jobData,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       createdAt: new Date().toISOString(),
     };
     setJobs([...jobs, newJob]);

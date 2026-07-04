@@ -14,6 +14,7 @@ import {
   Contact
 } from "lucide-react";
 import { Client, Job, COLUMNS } from "../types";
+import { generateUUID } from "../utils";
 
 interface ClientsProps {
   clients: Client[];
@@ -50,7 +51,7 @@ export function Clients({ clients, setClients, jobs }: ClientsProps) {
     } else {
       const newClient: Client = {
         ...clientData,
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         createdAt: new Date().toISOString(),
       };
       setClients([newClient, ...clients]);

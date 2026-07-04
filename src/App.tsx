@@ -12,6 +12,7 @@ import { Clients } from "./components/Clients";
 import { Settings } from "./components/Settings";
 import { AuthGate } from "./components/AuthGate";
 import { Job, Employee, PayrollRecord, AppUser, FileItem, Client, BusinessSettings, AuthenticatedUser, Business } from "./types";
+import { generateUUID } from "./utils";
 
 // SEED DATA FOR DEMO CORPORATIONS
 
@@ -581,11 +582,11 @@ export default function App() {
                 onSave={(jobData) => {
                   const newJob: Job = {
                     ...jobData,
-                    id: crypto.randomUUID(),
+                    id: generateUUID(),
                     createdAt: new Date().toISOString(),
                     activityLog: [
                       {
-                        id: crypto.randomUUID(),
+                        id: generateUUID(),
                         action: `Job request initiated for ${jobData.client}`,
                         timestamp: new Date().toISOString(),
                         user: currentUser.name,
@@ -624,7 +625,7 @@ export default function App() {
               const address = (target.elements.namedItem("clientAddress") as HTMLInputElement).value;
               
               const newClient = {
-                id: `c_${crypto.randomUUID().slice(0, 8)}`,
+                id: `c_${generateUUID().slice(0, 8)}`,
                 name,
                 company: company || "Individual",
                 email,
@@ -738,7 +739,7 @@ export default function App() {
                 if (!matchedEmployee) return;
 
                 const newTimeCard = {
-                  id: `tc_${crypto.randomUUID().slice(0, 8)}`,
+                  id: `tc_${generateUUID().slice(0, 8)}`,
                   date,
                   clockIn,
                   clockOut,

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { AppUser, PagePermission } from "../types";
 import { UserPlus, Shield, Mail, User, Trash2, CheckSquare, Square } from "lucide-react";
+import { generateUUID } from "../utils";
 
 const ALL_PERMISSIONS: { id: PagePermission; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
@@ -120,7 +121,7 @@ export function UserManagement({
             if (editingUser) {
               setUsers(users.map((u) => (u.id === editingUser.id ? { ...userData, id: u.id } : u)));
             } else {
-              setUsers([...users, { ...userData, id: crypto.randomUUID() }]);
+              setUsers([...users, { ...userData, id: generateUUID() }]);
             }
             setIsModalOpen(false);
           }}

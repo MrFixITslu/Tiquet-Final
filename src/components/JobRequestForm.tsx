@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Job, Employee, Client } from '../types';
 import { Send, Sparkles, AlertCircle, Building2, Plus } from 'lucide-react';
+import { generateUUID } from '../utils';
 
 interface JobRequestFormProps {
   onSave: (job: Omit<Job, 'id' | 'createdAt'>) => void;
@@ -35,7 +36,7 @@ export function JobRequestForm({ onSave, employees, clients, className = "" }: J
       assignedTo: assignedTo || undefined,
       activityLog: [
         {
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           action: "Job request created",
           timestamp: new Date().toISOString(),
           user: "System",

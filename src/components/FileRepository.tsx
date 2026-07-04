@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { FileItem } from "../types";
+import { generateUUID } from "../utils";
 import {
   File,
   Upload,
@@ -47,7 +48,7 @@ export function FileRepository({
     if (!uploadedFiles) return;
 
     const newFiles: FileItem[] = Array.from(uploadedFiles).map((file: any) => ({
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       name: file.name,
       size: file.size,
       type: file.type,
