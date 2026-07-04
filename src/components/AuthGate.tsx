@@ -336,12 +336,9 @@ export function AuthGate({
             {/* SOCIAL SSO QUICK ACTIONS */}
             <div className="space-y-3">
               <div className="text-center space-y-1 mb-2">
-                <h3 className="text-sm font-semibold text-slate-300">
-                  Select Login Provider
+                <h3 className="text-base font-bold text-slate-200">
+                  Login
                 </h3>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Authenticate securely to isolate your workspace and load cloud integrations.
-                </p>
               </div>
 
               {/* Google Button */}
