@@ -451,20 +451,9 @@ export default function App() {
                 className="bg-transparent border-none outline-none ml-2 text-sm w-full text-slate-700"
               />
             </div>
-            
-            <div className="hidden lg:flex items-center gap-1 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-full text-[10px] font-bold text-indigo-700 uppercase tracking-wide">
-              <Shield className="w-3.5 h-3.5" />
-              Tenant ID: {activeBusiness.id}
-            </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Status indicator to reinforce absolute isolation and security */}
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-600 font-bold uppercase tracking-wider bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Isolated Space
-            </div>
-
             {/* Quick Actions Dropdown */}
             <div className="relative">
               <button
@@ -554,6 +543,7 @@ export default function App() {
               setEmployees={setEmployees}
               payrollRecords={payrollRecords}
               setPayrollRecords={setPayrollRecords}
+              businessId={activeBusiness.id}
             />
           )}
           {activeTab === "users" && (
@@ -572,7 +562,7 @@ export default function App() {
             />
           )}
           {activeTab === "settings" && (
-            <Settings settings={settings} setSettings={handleUpdateSettings} />
+            <Settings settings={settings} setSettings={handleUpdateSettings} businessId={activeBusiness.id} />
           )}
           {activeTab === "new-request" && (
             <div className="max-w-4xl mx-auto">

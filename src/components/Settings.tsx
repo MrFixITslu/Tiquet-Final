@@ -16,9 +16,11 @@ import { BusinessSettings } from "../types";
 export function Settings({
   settings,
   setSettings,
+  businessId,
 }: {
   settings: BusinessSettings;
   setSettings: (settings: BusinessSettings) => void;
+  businessId?: string;
 }) {
   const [activeTab, setActiveTab] = React.useState<"general" | "notifications">("general");
 
@@ -86,8 +88,19 @@ export function Settings({
               </p>
             </div>
             <div className="md:col-span-2 space-y-6">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                <div className="flex items-center gap-4 mb-4">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+                {businessId && (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Workspace Tenant ID</p>
+                      <p className="text-sm font-mono font-semibold text-slate-700 mt-0.5">{businessId}</p>
+                    </div>
+                    <div className="self-start sm:self-auto px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-full text-[10px] font-bold text-indigo-700 uppercase tracking-wider">
+                      Active Partition
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-4">
                   <div className="w-20 h-20 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden relative group">
                     {settings.logoUrl ? (
                       <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />

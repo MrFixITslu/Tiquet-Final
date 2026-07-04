@@ -43,7 +43,7 @@ export interface JobNote {
   user: string;
 }
 
-export type WorkerType = "salary" | "hourly" | "bi-weekly";
+export type WorkerType = "salary" | "hourly" | "bi-weekly" | "commission" | "flat-fee";
 
 export interface TimeCard {
   id: string;
@@ -60,6 +60,9 @@ export interface Employee {
   salary: number;
   hourlyRate?: number;
   hoursWorked?: number;
+  commissionRate?: number;
+  commissionBasis?: number;
+  flatFeeRate?: number;
   workerType: WorkerType;
   paymentMethod: "Bank Transfer" | "Check" | "PayPal";
   status: "active" | "inactive";
@@ -149,7 +152,7 @@ export interface AuthenticatedUser {
   name: string;
   email: string;
   photoUrl?: string;
-  provider: "google" | "apple";
+  provider: "google" | "apple" | "facebook" | "email";
 }
 
 export interface FileItem {
