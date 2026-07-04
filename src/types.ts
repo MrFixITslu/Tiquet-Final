@@ -132,6 +132,8 @@ export interface BusinessSettings {
   paymentTerms: string;
   currency: string;
   taxRate: number;
+  notificationNewJobAlert?: boolean;
+  notificationStatusChangeAlert?: boolean;
 }
 
 export interface Business {

@@ -186,12 +186,28 @@ const JobCard: React.FC<{
         </div>
       )}
 
-      {job.dueDate && (
-        <div className="flex items-center gap-1.5 text-[10px] font-semibold text-orange-600 mb-4 bg-orange-50 px-2 py-1 rounded-md w-fit">
-          <Clock className="w-3 h-3" />
-          Due: {new Date(job.dueDate).toLocaleDateString()}
-        </div>
-      )}
+      {job.dueDate && (() => {
+        const isCompletedOrPaid = job.status === "completed" || job.status === "paid";
+        const isOverdue = !isCompletedOrPaid && new Date(job.dueDate).setHours(0, 0, 0, 0) < new Date().setHours(0, 0, 0, 0);
+
+        return (
+          <div
+            className={`flex items-center gap-1.5 text-[10px] font-semibold mb-4 px-2 py-1 rounded-md w-fit border transition-all ${
+              isOverdue
+                ? "bg-red-50 text-red-600 border-red-200 shadow-sm shadow-red-50"
+                : "bg-orange-50 text-orange-600 border-orange-100"
+            }`}
+          >
+            <Clock className="w-3 h-3" />
+            <span>Due: {new Date(job.dueDate).toLocaleDateString()}</span>
+            {isOverdue && (
+              <span className="ml-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[8px] font-bold uppercase tracking-wider">
+                Overdue
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="flex items-center justify-between mt-auto pt-3 border-t border-slate-100">
         <div className="flex items-center gap-3 text-slate-400">
