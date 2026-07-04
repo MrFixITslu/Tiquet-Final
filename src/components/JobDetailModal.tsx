@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { Job, Employee, JobNote, Client } from "../types";
-import { BusinessSettings } from "./Settings";
+import { Job, Employee, JobNote, Client, BusinessSettings } from "../types";
 import {
   X,
   FileText,
@@ -263,10 +262,9 @@ export function JobDetailModal({
     setNewNote("");
   };
 
-  // Find full client details — Job stores the name in job.client (no clientId)
+  // Find full client details
   const clientDetails = clients.find(
-    (c) => (c.name ?? "").toLowerCase() === job.client.toLowerCase()
-      || (c.company ?? "").toLowerCase() === job.client.toLowerCase()
+    (c) => c.id === job.clientId || c.company.toLowerCase() === job.client.toLowerCase()
   );
 
   const getDocTitle = () => {

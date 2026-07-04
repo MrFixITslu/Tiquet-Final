@@ -1,73 +1,9 @@
-################################################################################
-# V79 Tick-It — Production Docker Compose
-#
-# Usage:
-#   1. cp .env.example .env   (then fill in all values)
-#   2. docker compose up -d
-#   3. Visit https://your-domain.com
-#
-# Volumes persist data between container restarts/upgrades.
-################################################################################
-
-version: "3.9"
-
 services:
-
-  # ── Application (Node.js + Express + SQLite) ─────────────────────────────
-  app:
+  v79-tiquet-manager:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
-    container_name: v79tickit-app
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      NODE_ENV: production
-      PORT: 3001
-      # The DB path inside the container (backed by named volume below)
-      DATABASE_PATH: /app/data/data.db
-    volumes:
-      - tickit_data:/app/data        # SQLite database
-      - tickit_uploads:/app/uploads  # User-uploaded files
-      - tickit_logs:/app/logs        # App + audit logs
-      - tickit_backups:/app/backups  # Database backups
-    expose:
-      - "3001"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    networks:
-      - internal
-
-  # ── Nginx (reverse proxy + SSL termination) ───────────────────────────────
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: v79tickit-nginx
-    restart: unless-stopped
+    container_name: v79-tiquet-manager
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro          # SSL certs (Let's Encrypt)
-      - tickit_logs:/var/log/nginx             # Share log volume
-    depends_on:
-      app:
-        condition: service_healthy
-    networks:
-      - internal
-
-# ── Named volumes (survive container recreation) ─────────────────────────────
-volumes:
-  tickit_data:
-  tickit_uploads:
-  tickit_logs:
-  tickit_backups:
-
-networks:
-  internal:
-    driver: bridge
+      - "3000:3000"
+    restart: unless-stopped
