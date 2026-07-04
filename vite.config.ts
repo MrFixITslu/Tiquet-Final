@@ -4,12 +4,9 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+  loadEnv(mode, '.', '');
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -17,8 +14,16 @@ export default defineConfig(({mode}) => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      // Proxy API calls to the Express backend during local dev (npm run dev:all).
+      // In production the same Express server serves both the built frontend
+      // and /api routes, so no proxy is needed there.
+      proxy: {
+        '/api': {
+          target: `http://localhost:${process.env.PORT || 8080}`,
+          changeOrigin: true,
+        },
+      },
     },
   };
 });

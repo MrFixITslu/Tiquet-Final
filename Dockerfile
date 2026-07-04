@@ -1,31 +1,40 @@
 # Stage 1: Build the React application
-FROM node:20-alpine AS build
+FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
 
-# Copy package files first for better layer caching
-COPY package.json package-lock.json* ./
+# python3/make/g++ are needed to compile better-sqlite3's native bindings.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies (use ci if package-lock is present, else install)
+COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-# Copy the rest of the application files
 COPY . .
-
-# Build the production application
 RUN npm run build
 
-# Stage 2: Serve the application with Nginx on port 3000
-FROM nginx:alpine
+# Stage 2: Runtime - Node serves both the API and the built frontend.
+FROM node:20-bookworm-slim AS runtime
 
-# Copy the custom nginx configuration
-COPY --from=build /app/nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app
+ENV NODE_ENV=production
 
-# Copy build files from Stage 1 to Nginx public directory
-COPY --from=build /app/dist /usr/share/nginx/html
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Expose port 3000
-EXPOSE 3000
+COPY package.json package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
+    && apt-get purge -y python3 make g++ && apt-get autoremove -y
 
-# Start Nginx
-CMD ["nginx", "-g", "daemon off;"]
+COPY --from=build /app/dist ./dist
+COPY server ./server
+
+# SQLite database file lives here - mount this as a volume so data survives
+# container restarts/redeploys (see docker-compose.yml).
+RUN mkdir -p /app/data
+VOLUME ["/app/data"]
+
+EXPOSE 8080
+CMD ["node", "server/index.js"]

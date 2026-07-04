@@ -13,25 +13,40 @@ import { Settings } from "./components/Settings";
 import { AuthGate } from "./components/AuthGate";
 import { Job, Employee, PayrollRecord, AppUser, FileItem, Client, BusinessSettings, AuthenticatedUser, Business } from "./types";
 import { generateUUID } from "./utils";
+import { api } from "./lib/api";
 
 // SECURE MULTI-TENANT WORKSPACE ROOT
 
+const ACTIVE_BUSINESS_ID_KEY = "tickit_active_business_id";
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(() => {
-    const saved = localStorage.getItem("tickit_current_user");
-    return saved ? JSON.parse(saved) : null;
-  });
+  // Auth state is no longer read from localStorage - it's restored from the
+  // server session (httpOnly cookie) on load, so login now works the same
+  // way from any browser/device rather than being trapped in one browser's
+  // localStorage.
+  const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(null);
+  const [activeBusiness, setActiveBusiness] = useState<Business | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
 
-  const [activeBusiness, setActiveBusiness] = useState<Business | null>(() => {
-    const saved = localStorage.getItem("tickit_active_business");
-    if (saved) {
+  useEffect(() => {
+    (async () => {
       try {
-        return JSON.parse(saved) as Business;
-      } catch (e) {}
-    }
-    return null;
-  });
+        const { user } = await api.me();
+        setCurrentUser(user);
+
+        const { businesses } = await api.listBusinesses();
+        const rememberedId = localStorage.getItem(ACTIVE_BUSINESS_ID_KEY);
+        const restored = businesses.find((b) => b.id === rememberedId) || businesses[0] || null;
+        setActiveBusiness(restored);
+      } catch (err) {
+        // No valid session - fall through to the login gate.
+        setCurrentUser(null);
+        setActiveBusiness(null);
+      } finally {
+        setSessionLoading(false);
+      }
+    })();
+  }, []);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("tickit_theme") as "light" | "dark") || "light";
@@ -180,43 +195,46 @@ export default function App() {
     setSettings(newSettings);
     if (activeBusiness) {
       localStorage.setItem(`tickit_${activeBusiness.id}_settings`, JSON.stringify(newSettings));
-      
-      // Update business name inside activeBusiness representation too
+
       const updatedBiz = { ...activeBusiness, name: newSettings.name, settings: newSettings };
       setActiveBusiness(updatedBiz);
-      localStorage.setItem("tickit_active_business", JSON.stringify(updatedBiz));
 
-      // Update registered businesses list in localStorage
-      const storedBizs = localStorage.getItem("tickit_registered_businesses");
-      if (storedBizs) {
-        try {
-          const parsed = JSON.parse(storedBizs) as Business[];
-          const updatedList = parsed.map(b => b.id === activeBusiness.id ? updatedBiz : b);
-          localStorage.setItem("tickit_registered_businesses", JSON.stringify(updatedList));
-        } catch (e) {}
-      }
+      // Persist the business record (name/settings) to the server too, so
+      // it shows correctly if this user logs in from another device.
+      api.updateBusinessSettings(activeBusiness.id, newSettings).catch((err) => {
+        console.error("Failed to sync business settings to server:", err);
+      });
     }
   };
 
   const handleAuthComplete = (user: AuthenticatedUser, business: Business) => {
     setCurrentUser(user);
     setActiveBusiness(business);
-    localStorage.setItem("tickit_current_user", JSON.stringify(user));
-    localStorage.setItem("tickit_active_business", JSON.stringify(business));
+    // Only remembering *which* business was last active locally, as a UX
+    // nicety - the account and business records themselves live server-side.
+    localStorage.setItem(ACTIVE_BUSINESS_ID_KEY, business.id);
     setActiveTab("dashboard");
   };
 
   const handleLogout = () => {
+    api.logout().catch(() => {});
     setCurrentUser(null);
     setActiveBusiness(null);
-    localStorage.removeItem("tickit_current_user");
-    localStorage.removeItem("tickit_active_business");
+    localStorage.removeItem(ACTIVE_BUSINESS_ID_KEY);
   };
 
   const handleSwitchBusiness = () => {
     setActiveBusiness(null);
-    localStorage.removeItem("tickit_active_business");
+    localStorage.removeItem(ACTIVE_BUSINESS_ID_KEY);
   };
+
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full border-4 border-t-indigo-600 border-r-indigo-600/20 border-b-indigo-600/20 border-l-indigo-600/20 animate-spin" />
+      </div>
+    );
+  }
 
   // If session is unauthenticated or active business is not selected, direct to security gate
   if (!currentUser || !activeBusiness) {

@@ -5,5 +5,17 @@ services:
       dockerfile: Dockerfile
     container_name: v79-tiquet-manager
     ports:
-      - "3000:3000"
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      # REQUIRED: generate with
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      # and put it in a .env file next to this compose file (do not commit it).
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - tickit_data:/app/data
     restart: unless-stopped
+
+volumes:
+  tickit_data:
