@@ -18,8 +18,10 @@ import {
   Send,
   Sparkles,
   FileSpreadsheet,
-  CheckSquare
+  CheckSquare,
+  Download
 } from "lucide-react";
+import { jsPDF } from "jspdf";
 
 export function JobDetailModal({
   job,
@@ -43,6 +45,210 @@ export function JobDetailModal({
 
   const handleSaveNotes = () => {
     onUpdate({ ...job, invoiceNotes });
+  };
+
+  const handleDownloadPDF = () => {
+    try {
+      const doc = new jsPDF();
+      const client = clientDetails;
+
+      // Color Palette
+      const primaryColor = [15, 23, 42]; // Slate 900
+      const secondaryColor = [99, 102, 241]; // Indigo 500
+      const lightGray = [241, 245, 249]; // Slate 100
+      const darkGray = [71, 85, 105]; // Slate 600
+
+      // Header Band
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, 210, 40, "F");
+
+      // Title on Header Band
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(22);
+      
+      const docTitleText = docType === "estimate" 
+        ? "ESTIMATE & PROPOSAL" 
+        : docType === "work_order" 
+        ? "WORK ORDER" 
+        : "COMMERCIAL INVOICE";
+        
+      doc.text(docTitleText, 15, 25);
+
+      // Business Name & Info on Header Band
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${settings.name || "V79 TIQUET Enterprise"}`, 140, 18);
+      doc.setFontSize(8);
+      doc.setTextColor(203, 213, 225); // Slate 300
+      doc.text(`${settings.address || ""}`, 140, 24, { maxWidth: 55 });
+      doc.text(`${settings.email || ""} | ${settings.phone || ""}`, 140, 34);
+
+      // Invoice Meta (under header)
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(docType === "estimate" ? "ESTIMATE DETAILS" : docType === "work_order" ? "WORK ORDER DETAILS" : "INVOICE DETAILS", 15, 55);
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
+      
+      const prefix = docType === "estimate" ? "EST" : docType === "work_order" ? "WO" : "INV";
+      const invoiceRef = `${prefix}-${job.id.slice(0, 8).toUpperCase()}`;
+      doc.text(`Reference No: ${invoiceRef}`, 15, 62);
+      doc.text(`Created Date: ${new Date(job.createdAt).toLocaleDateString()}`, 15, 68);
+      const dueDateText = job.dueDate ? new Date(job.dueDate).toLocaleDateString() : "Upon receipt";
+      doc.text(`Target/Due Date: ${dueDateText}`, 15, 74);
+      doc.text(`Status: ${job.status.toUpperCase()}`, 15, 80);
+
+      // Client Info Card (right side)
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text(docType === "work_order" ? "CLIENT / LOCATION" : "BILL TO", 120, 55);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
+      doc.text(`Client Name: ${job.client}`, 120, 62);
+      if (client) {
+        doc.text(`Contact: ${client.name}`, 120, 68);
+        doc.text(`Email: ${client.email}`, 120, 74);
+        if (client.phone) doc.text(`Phone: ${client.phone}`, 120, 80);
+        if (client.address) {
+          doc.text(`Address: ${client.address}`, 120, 86, { maxWidth: 75 });
+        }
+      } else {
+        doc.text("No additional contact info registered.", 120, 68);
+      }
+
+      // Horizontal line
+      doc.setDrawColor(226, 232, 240); // Slate 200
+      doc.line(15, 105, 195, 105);
+
+      // Scope / Title Details
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text("PROJECT SCOPE & DETAILS", 15, 115);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text(`Job Title: ${job.title}`, 15, 123);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
+      const descriptionLines = doc.splitTextToSize(job.description || "No description provided.", 180);
+      doc.text(descriptionLines, 15, 129);
+
+      const descHeight = descriptionLines.length * 4.5;
+      let currentY = 129 + descHeight + 10;
+
+      if (docType !== "work_order") {
+        // Line Items Table Header
+        doc.setFillColor(lightGray[0], lightGray[1], lightGray[2]);
+        doc.rect(15, currentY, 180, 8, "F");
+        
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.text("Description / Line Items", 18, currentY + 5.5);
+        doc.text("Amount", 175, currentY + 5.5, { align: "right" });
+
+        currentY += 8;
+
+        // Render line items or fallback to Job Title
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
+
+        const currencySymbol = settings.currency === "XCD" ? "EC$" : "$";
+
+        if (invoiceNotes) {
+          const lines = invoiceNotes.split("\n").filter(line => line.trim());
+          lines.forEach((line) => {
+            let amt = "-";
+            if (line.includes("$")) {
+              amt = `${currencySymbol}${line.split("$")[1].trim()}`;
+            } else if (line.includes("EC$")) {
+              amt = `EC$${line.split("EC$")[1].trim()}`;
+            }
+            
+            const wrappedLine = doc.splitTextToSize(line, 140);
+            doc.text(wrappedLine, 18, currentY + 6);
+            doc.text(amt, 175, currentY + 6, { align: "right" });
+            currentY += Math.max(wrappedLine.length * 4.5 + 2, 7);
+          });
+        } else {
+          doc.text(`${job.title} - Full Scope Service`, 18, currentY + 6);
+          doc.text(`${currencySymbol}${job.amount?.toLocaleString() || "0"}`, 175, currentY + 6, { align: "right" });
+          currentY += 8;
+        }
+
+        // Divider
+        doc.setDrawColor(226, 232, 240);
+        doc.line(15, currentY + 2, 195, currentY + 2);
+        currentY += 8;
+
+        // Total
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.text("TOTAL AMOUNT DUE", 100, currentY);
+        
+        doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
+        doc.setFontSize(14);
+        doc.text(`${currencySymbol}${job.amount?.toLocaleString() || "0"}`, 175, currentY, { align: "right" });
+
+        currentY += 15;
+      } else {
+        // Work Order details
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.text("Operations Checklist & Compliance:", 15, currentY);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
+        doc.text("- Deliver complete project scope according to description.", 18, currentY + 6);
+        doc.text("- Check all code, design templates, and marketing parameters.", 18, currentY + 12);
+        doc.text("- Internal test and quality review complete.", 18, currentY + 18);
+        
+        if (job.assignedTo) {
+          doc.setFont("helvetica", "bold");
+          doc.text(`Assigned Operator: ${job.assignedTo}`, 18, currentY + 26);
+        }
+
+        currentY += 36;
+      }
+
+      // Payment Terms / Footnote
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text("Terms & Conditions:", 15, currentY);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(darkGray[0], darkGray[1], darkGray[2]);
+      const termsText = docType === "estimate" 
+        ? "This estimate is based on the current scope description and holds no binding contract until acceptance."
+        : docType === "work_order"
+        ? "All operational tasks must be handled in compliance with local workspace laws."
+        : settings.paymentTerms || "Please make payment within 30 days of receiving this invoice.";
+      const termsLines = doc.splitTextToSize(termsText, 180);
+      doc.text(termsLines, 15, currentY + 5);
+
+      // Download the file
+      doc.save(`${docType}_${invoiceRef.toLowerCase()}.pdf`);
+    } catch (error) {
+      console.error("Failed to generate PDF:", error);
+      alert("An error occurred while generating the PDF. Please try again.");
+    }
   };
 
   const handleAddNote = () => {
@@ -485,13 +691,20 @@ export function JobDetailModal({
               </p>
             </div>
 
-            <div className="mt-12 flex justify-center print:hidden">
+            <div className="mt-12 flex justify-center gap-4 print:hidden">
               <button
                 onClick={() => window.print()}
                 className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-800 transition-all shadow-xl"
               >
                 <Printer className="w-5 h-5" />
                 Print Document
+              </button>
+              <button
+                onClick={handleDownloadPDF}
+                className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-xl"
+              >
+                <Download className="w-5 h-5" />
+                Download PDF
               </button>
             </div>
           </div>

@@ -67,6 +67,8 @@ export function AuthGate({
           paymentTerms: "Please make payment within 30 days of receiving this invoice.",
           currency: "USD",
           taxRate: 5,
+          notificationNewJobAlert: true,
+          notificationStatusChangeAlert: true,
         }
       },
       {
@@ -82,6 +84,8 @@ export function AuthGate({
           paymentTerms: "Due immediately upon receipt. Late payments incur interest.",
           currency: "EUR",
           taxRate: 15,
+          notificationNewJobAlert: true,
+          notificationStatusChangeAlert: true,
         }
       }
     ];
@@ -136,6 +140,8 @@ export function AuthGate({
         paymentTerms: "Due within 30 days.",
         currency: "USD",
         taxRate: 0,
+        notificationNewJobAlert: true,
+        notificationStatusChangeAlert: true,
       }
     };
 
