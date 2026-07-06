@@ -391,7 +391,7 @@ export function JobDetailModal({
             </div>
           </div>
 
-          {/* Document Generation Options */}
+          {/* Document Generation Options - 100% Automated, non-AI */}
           <div className="border-t border-slate-100 pt-6">
             <h4 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4 text-indigo-500" />

@@ -4,28 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: v79-tiquet-manager
-    # Bind to localhost so Nginx Proxy Manager is the only public entry point.
-    # If NPM runs in Docker, remove ports, add both services to the same Docker
-    # network, and proxy to http://v79-tiquet-manager:8080 instead.
     ports:
-      - "127.0.0.1:8080:8080"
-    environment:
-      - NODE_ENV=production
-      - PORT=18080
-      - ALLOW_PUBLIC_REGISTRATION=${ALLOW_PUBLIC_REGISTRATION:-false}
-      # REQUIRED: generate with
-      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-      # and put it in a .env file next to this compose file (do not commit it).
-      - JWT_SECRET=${JWT_SECRET}
-    volumes:
-      - tickit_data:/app/data
+      - "3000:3000"
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-
-volumes:
-  tickit_data:

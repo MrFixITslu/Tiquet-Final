@@ -17,8 +17,16 @@ import {
   Chrome
 } from "lucide-react";
 import { AuthenticatedUser, Business } from "../types";
+import { generateUUID } from "../utils";
 import { googleSignIn } from "../lib/googleDrive";
-import { api, ApiError } from "../lib/api";
+
+interface StoredUser {
+  id: string;
+  name: string;
+  email: string;
+  password?: string;
+  photoUrl?: string;
+}
 
 export function AuthGate({
   onAuthComplete,
@@ -49,61 +57,81 @@ export function AuthGate({
   const [newBusinessPhone, setNewBusinessPhone] = useState("");
   const [newBusinessAddress, setNewBusinessAddress] = useState("");
 
-  const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [businessesLoading, setBusinessesLoading] = useState(false);
-
-  // Once we have an authenticated session, load that user's businesses
-  // from the server (source of truth is now the database, not localStorage).
-  const loadBusinesses = async () => {
-    setBusinessesLoading(true);
-    try {
-      const { businesses: loaded } = await api.listBusinesses();
-      setBusinesses(loaded);
-    } catch (err) {
-      console.error("Failed to load businesses:", err);
-      setErrorMessage(err instanceof ApiError ? err.message : "Failed to load your business divisions.");
-    } finally {
-      setBusinessesLoading(false);
+  // Fetch registered users from localStorage cleanly without any demo seeding
+  const getRegisteredUsers = (): StoredUser[] => {
+    const stored = localStorage.getItem("tickit_registered_users");
+    if (stored) {
+      try {
+        return JSON.parse(stored) as StoredUser[];
+      } catch (e) {
+        // Fallback
+      }
     }
+    return [];
   };
 
-  useEffect(() => {
-    if (authStep === "business_select") {
-      loadBusinesses();
+  // Fetch registered businesses from localStorage cleanly without any demo seeding
+  const getRegisteredBusinesses = (): Business[] => {
+    const stored = localStorage.getItem("tickit_registered_businesses");
+    if (stored) {
+      try {
+        return JSON.parse(stored) as Business[];
+      } catch (e) {
+        // Fallback
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authStep]);
+    return [];
+  };
+
+  const [businesses, setBusinesses] = useState<Business[]>(() => {
+    return getRegisteredBusinesses();
+  });
 
   const handleSelectBusiness = (biz: Business) => {
     if (!tempUser) return;
     onAuthComplete(tempUser, biz);
   };
 
-  const handleCreateBusiness = async (e: React.FormEvent) => {
+  const handleCreateBusiness = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tempUser || !newBusinessName.trim()) return;
 
-    setErrorMessage("");
-    try {
-      const { business } = await api.createBusiness({
-        name: newBusinessName,
-        email: newBusinessEmail,
-        phone: newBusinessPhone,
-        address: newBusinessAddress,
-      });
-      // Auto login to the newly created business
-      onAuthComplete(tempUser, business);
-    } catch (err) {
-      // The "1 business per subscription" limit is enforced server-side now,
-      // so this also covers someone trying to bypass the old client-only check.
-      setErrorMessage(err instanceof ApiError ? err.message : "Failed to create business.");
+    // Users can only register 1 business per subscription
+    const userBusinesses = businesses.filter((biz) => biz.ownerEmail === tempUser.email);
+    if (userBusinesses.length >= 1) {
+      setErrorMessage("Subscription Limit Reached: You are only allowed to register 1 business division per subscription.");
       setAuthStep("business_select");
+      return;
     }
+
+    const newBiz: Business = {
+      id: `biz_${generateUUID().slice(0, 8)}`,
+      name: newBusinessName,
+      ownerEmail: tempUser.email,
+      settings: {
+        name: newBusinessName,
+        address: newBusinessAddress || "Not configured",
+        email: newBusinessEmail || tempUser.email,
+        phone: newBusinessPhone || "+1 (555) 000-0000",
+        logoUrl: "",
+        paymentTerms: "Due within 30 days.",
+        currency: "USD",
+        taxRate: 0,
+        notificationNewJobAlert: true,
+        notificationStatusChangeAlert: true,
+      }
+    };
+
+    const updated = [...businesses, newBiz];
+    localStorage.setItem("tickit_registered_businesses", JSON.stringify(updated));
+    setBusinesses(updated);
+    
+    // Auto login to the newly created business
+    onAuthComplete(tempUser, newBiz);
   };
 
-  // EMAIL REGISTRATION & LOGIN HANDLERS - now backed by the real API,
-  // with passwords hashed (bcrypt) and never touching localStorage.
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  // EMAIL REGISTRATION & LOGIN HANDLERS
+  const handleEmailAuth = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
     setSuccessMessage("");
@@ -113,38 +141,71 @@ export function AuthGate({
       return;
     }
 
+    const registeredUsers = getRegisteredUsers();
+
     if (isRegistering) {
       if (!name.trim()) {
         setErrorMessage("Please enter your full name.");
         return;
       }
-      if (password.length < 8) {
-        setErrorMessage("Password must be at least 8 characters.");
+
+      const emailExists = registeredUsers.some(u => u.email.toLowerCase() === email.toLowerCase());
+      if (emailExists) {
+        setErrorMessage("This email is already registered.");
         return;
       }
 
-      setLoadingText("Creating your secure account...");
+      const newUser: StoredUser = {
+        id: `usr_${generateUUID().slice(0, 8)}`,
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
+        password,
+        photoUrl: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80`
+      };
+
+      const updatedUsers = [...registeredUsers, newUser];
+      localStorage.setItem("tickit_registered_users", JSON.stringify(updatedUsers));
+
+      setSuccessMessage("Account created successfully!");
+      setLoadingText("Initializing secure isolated email tenant session...");
       setAuthStep("loading");
-      try {
-        const { user } = await api.register(name, email, password);
-        setSuccessMessage("Account created successfully!");
-        setTempUser(user);
+
+      setTimeout(() => {
+        const authenticatedUser: AuthenticatedUser = {
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          provider: "email",
+          photoUrl: newUser.photoUrl
+        };
+        setTempUser(authenticatedUser);
         setAuthStep("business_select");
-      } catch (err) {
-        setAuthStep("login");
-        setErrorMessage(err instanceof ApiError ? err.message : "Failed to create account.");
-      }
+      }, 1000);
+
     } else {
+      const matchedUser = registeredUsers.find(
+        u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+      );
+
+      if (!matchedUser) {
+        setErrorMessage("Invalid email or password.");
+        return;
+      }
+
       setLoadingText("Verifying credentials and loading workspace partitions...");
       setAuthStep("loading");
-      try {
-        const { user } = await api.login(email, password);
-        setTempUser(user);
+
+      setTimeout(() => {
+        const authenticatedUser: AuthenticatedUser = {
+          id: matchedUser.id,
+          name: matchedUser.name,
+          email: matchedUser.email,
+          provider: "email",
+          photoUrl: matchedUser.photoUrl
+        };
+        setTempUser(authenticatedUser);
         setAuthStep("business_select");
-      } catch (err) {
-        setAuthStep("login");
-        setErrorMessage(err instanceof ApiError ? err.message : "Invalid email or password.");
-      }
+      }, 1000);
     }
   };
 
@@ -155,11 +216,15 @@ export function AuthGate({
     setAuthStep("loading");
     try {
       const result = await googleSignIn();
-      if (result && result.accessToken) {
-        // The access token is verified server-side against Google's own
-        // userinfo endpoint before we ever trust the profile it returns.
-        const { user } = await api.oauthGoogle(result.accessToken);
-        setTempUser(user);
+      if (result && result.user) {
+        const authenticatedUser: AuthenticatedUser = {
+          id: `g_${result.user.uid}`,
+          name: result.user.displayName || "Google User",
+          email: result.user.email || "google-user@domain.com",
+          provider: "google",
+          photoUrl: result.user.photoURL || undefined
+        };
+        setTempUser(authenticatedUser);
         setAuthStep("business_select");
       } else {
         setAuthStep("login");
@@ -168,7 +233,7 @@ export function AuthGate({
     } catch (err: any) {
       console.error("Google login failed:", err);
       setAuthStep("login");
-      setErrorMessage(err instanceof ApiError ? err.message : err.message || "Failed to log in via Google SSO.");
+      setErrorMessage(err.message || "Failed to log in via Google SSO.");
     }
   };
 
@@ -194,19 +259,12 @@ export function AuthGate({
     }
   };
 
-  // Listen for the postMessage event sent from the loaded popup callback page.
-  //
-  // BUG FIX: this previously only accepted event.origin values ending in
-  // ".run.app" or containing "localhost" - a hardcoded leftover from the
-  // hosted scaffold. On any other deployment (your own
-  // Nginx/Linux server, a custom domain, etc.) the popup's message was
-  // silently dropped and Facebook login just did nothing with no error.
-  // The popup and this window are always the same origin (the OAuth
-  // redirect_uri is window.location.origin), so we compare against that
-  // directly instead of guessing at hosting providers.
+  // Listen for the postMessage event sent from the loaded popup callback page
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) {
+      // Validate origin is from standard app or localhost
+      const origin = event.origin;
+      if (!origin.endsWith(".run.app") && !origin.includes("localhost")) {
         return;
       }
 
@@ -216,18 +274,30 @@ export function AuthGate({
         const accessToken = params.get("access_token");
 
         if (accessToken) {
-          setLoadingText("Verifying Facebook credentials...");
+          setLoadingText("Fetching Facebook profile info...");
           setAuthStep("loading");
 
           try {
-            // Verified server-side against the Graph API - the frontend no
-            // longer calls Facebook (and trusts its response) directly.
-            const { user } = await api.oauthFacebook(accessToken);
-            setTempUser(user);
+            // Live actual fetch to Facebook's Graph API
+            const response = await fetch(`https://graph.facebook.com/v18.0/me?fields=id,name,email,picture.type(large)&access_token=${accessToken}`);
+            if (!response.ok) {
+              throw new Error("Facebook API error or unauthorized token");
+            }
+            const fbUser = await response.json();
+            
+            const authenticatedUser: AuthenticatedUser = {
+              id: `fb_${fbUser.id}`,
+              name: fbUser.name || "Facebook User",
+              email: fbUser.email || `${fbUser.id}@facebook.user.com`,
+              provider: "facebook",
+              photoUrl: fbUser.picture?.data?.url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80"
+            };
+
+            setTempUser(authenticatedUser);
             setAuthStep("business_select");
           } catch (error: any) {
-            console.error("Facebook login failed:", error);
-            setFbError(error instanceof ApiError ? error.message : "Failed to verify Facebook login.");
+            console.error("Facebook profile fetch failed:", error);
+            setFbError(error.message || "Failed to fetch Facebook profile.");
             setAuthStep("login");
           }
         } else {
@@ -459,20 +529,10 @@ export function AuthGate({
               </p>
             </div>
 
-            {errorMessage && (
-              <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-xl flex items-start gap-2.5 text-xs text-red-400">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
             <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-              {businessesLoading && (
-                <p className="text-xs text-slate-500 text-center py-4">Loading your business divisions...</p>
-              )}
-              {!businessesLoading && (() => {
-                // These come from the server now, already scoped to this user.
-                const filtered = businesses;
+              {(() => {
+                // Filter businesses owned by user or system (pre-seeded ones for excellent sandbox play)
+                const filtered = businesses.filter((biz) => biz.ownerEmail === tempUser.email || biz.ownerEmail === "system");
                 if (filtered.length === 0) {
                   return (
                     <div className="text-center py-6 px-4 border border-dashed border-slate-850 rounded-2xl bg-slate-900/30">
@@ -505,7 +565,8 @@ export function AuthGate({
 
             <div className="pt-2">
               {(() => {
-                const limitReached = businesses.length >= 1;
+                const userBusinesses = businesses.filter((biz) => biz.ownerEmail === tempUser.email);
+                const limitReached = userBusinesses.length >= 1;
                 
                 if (limitReached) {
                   return (

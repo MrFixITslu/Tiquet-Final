@@ -15,10 +15,11 @@ export const auth = getAuth(app);
 // Configure Google OAuth Provider
 export const provider = new GoogleAuthProvider();
 provider.addScope("https://www.googleapis.com/auth/drive.file");
+provider.addScope("https://www.googleapis.com/auth/drive.readonly");
 
 // Keep-alive state variables
 let isSigningIn = false;
-let cachedAccessToken: string | null = null;
+let cachedAccessToken: string | null = typeof window !== "undefined" ? localStorage.getItem("gdrive_cached_access_token") : null;
 
 // Listen for Auth changes and cache token
 export const initAuth = (
@@ -30,10 +31,17 @@ export const initAuth = (
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else {
-        if (onAuthFailure) onAuthFailure();
+        const storedToken = localStorage.getItem("gdrive_cached_access_token");
+        if (storedToken) {
+          cachedAccessToken = storedToken;
+          if (onAuthSuccess) onAuthSuccess(user, storedToken);
+        } else {
+          if (onAuthFailure) onAuthFailure();
+        }
       }
     } else {
       cachedAccessToken = null;
+      localStorage.removeItem("gdrive_cached_access_token");
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -49,7 +57,8 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       throw new Error("Failed to retrieve access token from Google sign in.");
     }
     cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: credential.accessToken };
+    localStorage.setItem("gdrive_cached_access_token", cachedAccessToken);
+    return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error("Google SSO Error:", error);
     throw error;
@@ -62,11 +71,17 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 export const logoutGoogle = async () => {
   await auth.signOut();
   cachedAccessToken = null;
+  localStorage.removeItem("gdrive_cached_access_token");
 };
 
 export const getCachedToken = () => cachedAccessToken;
 export const setCachedToken = (token: string | null) => {
   cachedAccessToken = token;
+  if (token) {
+    localStorage.setItem("gdrive_cached_access_token", token);
+  } else {
+    localStorage.removeItem("gdrive_cached_access_token");
+  }
 };
 
 // GOOGLE DRIVE API OPERATIONS
