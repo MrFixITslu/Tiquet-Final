@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   v79-tiquet-manager:
     build:
@@ -6,4 +8,16 @@ services:
     container_name: v79-tiquet-manager
     ports:
       - "3000:3000"
+    environment:
+      # Automatically detected by standard Nginx reverse proxy containers (e.g. jwilder/nginx-proxy, Nginx Proxy Manager)
+      - VIRTUAL_HOST=tiquet.v79sl.duckdns.org
+      - VIRTUAL_PORT=3000
+      - LETSENCRYPT_HOST=tiquet.v79sl.duckdns.org
     restart: unless-stopped
+    # Uncomment and replace the network name if you want to attach to an existing proxy network
+    # networks:
+    #   - proxy-network
+
+# networks:
+#   proxy-network:
+#     external: true
