@@ -11,7 +11,7 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       - NODE_ENV=production
-      - PORT=8080
+      - PORT=18080
       - ALLOW_PUBLIC_REGISTRATION=${ALLOW_PUBLIC_REGISTRATION:-false}
       # REQUIRED: generate with
       #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"

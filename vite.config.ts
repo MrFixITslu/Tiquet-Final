@@ -13,7 +13,6 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Proxy API calls to the Express backend during local dev (npm run dev:all).
       // In production the same Express server serves both the built frontend

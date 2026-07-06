@@ -198,7 +198,7 @@ export function AuthGate({
   //
   // BUG FIX: this previously only accepted event.origin values ending in
   // ".run.app" or containing "localhost" - a hardcoded leftover from the
-  // AI Studio/Cloud Run scaffold. On any other deployment (your own
+  // hosted scaffold. On any other deployment (your own
   // Nginx/Linux server, a custom domain, etc.) the popup's message was
   // silently dropped and Facebook login just did nothing with no error.
   // The popup and this window are always the same origin (the OAuth
