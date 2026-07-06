@@ -23,8 +23,6 @@ Create a `.env` file next to `docker-compose.yml`:
 ```bash
 JWT_SECRET=<generate-with-node-crypto-randomBytes-48-hex>
 ALLOW_PUBLIC_REGISTRATION=false
-HOST_BIND_IP=127.0.0.1
-HOST_PORT=18080
 ```
 
 Generate the secret with:
@@ -37,17 +35,17 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ### Nginx Proxy Manager settings
 
-If NPM is installed on the host, the included compose file binds the app to `${HOST_BIND_IP:-127.0.0.1}:${HOST_PORT:-18080}`. This avoids the common `127.0.0.1:8080` conflict with other services. Configure the NPM Proxy Host as:
+If NPM is installed on the host, the included compose file binds the app to `127.0.0.1:8080`, so configure the NPM Proxy Host as:
 
 - Scheme: `http`
 - Forward hostname/IP: `127.0.0.1`
-- Forward port: `18080` by default, or the value you set for `HOST_PORT`
+- Forward port: `8080`
 - Enable SSL certificate
 - Enable Force SSL
 - Enable HTTP/2 if available
 - Set a suitable max upload/body size if users upload large files
 
-If that port is already allocated, change `HOST_PORT` in `.env` and recreate the container. If NPM runs as a Docker container, remove the `ports` mapping from this app, attach both containers to the same Docker network, and proxy to:
+If NPM runs as a Docker container, remove the `ports` mapping from this app, attach both containers to the same Docker network, and proxy to:
 
 - Scheme: `http`
 - Forward hostname: `v79-tiquet-manager`
