@@ -11,7 +11,7 @@ import { Invoices } from "./components/Invoices";
 import { Clients } from "./components/Clients";
 import { Settings } from "./components/Settings";
 import { AuthGate } from "./components/AuthGate";
-import { Job, Employee, PayrollRecord, AppUser, FileItem, Client, BusinessSettings, AuthenticatedUser, Business } from "./types";
+import { Job, Employee, PayrollRecord, AppUser, FileItem, Client, BusinessSettings, AuthenticatedUser, Business, GlobalPayrollSettings } from "./types";
 import { generateUUID } from "./utils";
 import { api } from "./lib/api";
 
@@ -27,6 +27,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(null);
   const [activeBusiness, setActiveBusiness] = useState<Business | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  const [dataReady, setDataReady] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -34,6 +35,7 @@ export default function App() {
         const { user } = await api.me();
         setCurrentUser(user);
 
+        await api.refreshCsrf();
         const { businesses } = await api.listBusinesses();
         const rememberedId = localStorage.getItem(ACTIVE_BUSINESS_ID_KEY);
         const restored = businesses.find((b) => b.id === rememberedId) || businesses[0] || null;
@@ -91,111 +93,103 @@ export default function App() {
     currency: "USD",
     taxRate: 0,
   });
+  const [payrollSettings, setPayrollSettings] = useState<GlobalPayrollSettings>({
+    defaultHourlyRate: 25,
+    defaultCommissionRate: 10,
+    defaultFlatFee: 1500,
+    taxWithholdingRate: 12,
+  });
 
-  // Fetch partitioned database when activeBusiness changes
+  // Fetch partitioned business data from the server when activeBusiness changes.
   useEffect(() => {
-    if (!activeBusiness) return;
-
-    const bizId = activeBusiness.id;
-
-    // Helper functions to load partition or fallback to clean defaults
-    const loadPartition = <T,>(key: string, fallbackValue: T): T => {
-      const stored = localStorage.getItem(`tickit_${bizId}_${key}`);
-      if (stored) {
-        try {
-          return JSON.parse(stored);
-        } catch (e) {
-          // parse error
-        }
-      }
-      
-      localStorage.setItem(`tickit_${bizId}_${key}`, JSON.stringify(fallbackValue));
-      return fallbackValue;
-    };
-
-    // Load jobs
-    const loadedJobs = loadPartition<Job[]>("jobs", []);
-    setJobs(loadedJobs);
-
-    // Load clients
-    const loadedClients = loadPartition<Client[]>("clients", []);
-    setClients(loadedClients);
-
-    // Load employees
-    const loadedEmployees = loadPartition<Employee[]>("employees", []);
-    setEmployees(loadedEmployees);
-
-    // Load files
-    const loadedFiles = loadPartition<FileItem[]>("files", []);
-    setFiles(loadedFiles);
-
-    // Load payroll
-    const loadedPayroll = loadPartition<PayrollRecord[]>("payroll", []);
-    setPayrollRecords(loadedPayroll);
-
-    // Load users (Add current tenant administrator as the first user if none exist)
-    const defaultUsers: AppUser[] = currentUser ? [
-      {
-        id: currentUser.id,
-        name: currentUser.name,
-        email: currentUser.email,
-        role: "Admin",
-        permissions: ["dashboard", "jobs", "new-request", "payroll", "invoices", "users", "files"]
-      }
-    ] : [];
-    const loadedUsers = loadPartition<AppUser[]>("users", defaultUsers);
-    setUsers(loadedUsers);
-
-    // Load Settings
-    const storedSettings = localStorage.getItem(`tickit_${bizId}_settings`);
-    if (storedSettings) {
-      try {
-        const parsedSettings = JSON.parse(storedSettings) as BusinessSettings;
-        setSettings(parsedSettings);
-      } catch (e) {}
-    } else {
-      localStorage.setItem(`tickit_${bizId}_settings`, JSON.stringify(activeBusiness.settings));
-      setSettings(activeBusiness.settings);
+    if (!activeBusiness) {
+      setDataReady(false);
+      return;
     }
 
-  }, [activeBusiness]);
+    let cancelled = false;
+    setDataReady(false);
 
-  // Synchronize partitioned database on state changes
+    (async () => {
+      const [jobsData, clientsData, employeesData, filesData, payrollData, usersData, payrollSettingsData] = await Promise.all([
+        api.getBusinessData<Job[]>(activeBusiness.id, "jobs"),
+        api.getBusinessData<Client[]>(activeBusiness.id, "clients"),
+        api.getBusinessData<Employee[]>(activeBusiness.id, "employees"),
+        api.getBusinessData<FileItem[]>(activeBusiness.id, "files"),
+        api.getBusinessData<PayrollRecord[]>(activeBusiness.id, "payroll"),
+        api.getBusinessData<AppUser[]>(activeBusiness.id, "users"),
+        api.getBusinessData<GlobalPayrollSettings>(activeBusiness.id, "payrollSettings"),
+      ]);
+
+      if (cancelled) return;
+
+      setJobs(jobsData.data);
+      setClients(clientsData.data);
+      setEmployees(employeesData.data);
+      setFiles(filesData.data);
+      setPayrollRecords(payrollData.data);
+      setUsers(usersData.data.length ? usersData.data : currentUser ? [
+        {
+          id: currentUser.id,
+          name: currentUser.name,
+          email: currentUser.email,
+          role: "Admin",
+          permissions: ["dashboard", "jobs", "new-request", "payroll", "invoices", "users", "files", "clients"],
+        }
+      ] : []);
+      setPayrollSettings(payrollSettingsData.data);
+      setSettings(activeBusiness.settings);
+      setDataReady(true);
+    })().catch((err) => {
+      console.error("Failed to load business data:", err);
+      if (!cancelled) setDataReady(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBusiness, currentUser]);
+
+  // Synchronize partitioned database on state changes. Server persistence is
+  // authoritative; localStorage is intentionally not used for business data.
   useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_jobs`, JSON.stringify(jobs));
-  }, [jobs, activeBusiness]);
+    if (!activeBusiness || !dataReady) return;
+    api.updateBusinessData(activeBusiness.id, "jobs", jobs).catch((err) => console.error("Failed to sync jobs:", err));
+  }, [jobs, activeBusiness, dataReady]);
 
   useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_clients`, JSON.stringify(clients));
-  }, [clients, activeBusiness]);
+    if (!activeBusiness || !dataReady) return;
+    api.updateBusinessData(activeBusiness.id, "clients", clients).catch((err) => console.error("Failed to sync clients:", err));
+  }, [clients, activeBusiness, dataReady]);
 
   useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_employees`, JSON.stringify(employees));
-  }, [employees, activeBusiness]);
+    if (!activeBusiness || !dataReady) return;
+    api.updateBusinessData(activeBusiness.id, "employees", employees).catch((err) => console.error("Failed to sync employees:", err));
+  }, [employees, activeBusiness, dataReady]);
 
   useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_files`, JSON.stringify(files));
-  }, [files, activeBusiness]);
+    if (!activeBusiness || !dataReady) return;
+    api.updateBusinessData(activeBusiness.id, "files", files).catch((err) => console.error("Failed to sync files:", err));
+  }, [files, activeBusiness, dataReady]);
 
   useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_payroll`, JSON.stringify(payrollRecords));
-  }, [payrollRecords, activeBusiness]);
+    if (!activeBusiness || !dataReady) return;
+    api.updateBusinessData(activeBusiness.id, "payroll", payrollRecords).catch((err) => console.error("Failed to sync payroll:", err));
+  }, [payrollRecords, activeBusiness, dataReady]);
 
   useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_users`, JSON.stringify(users));
-  }, [users, activeBusiness]);
+    if (!activeBusiness || !dataReady) return;
+    api.updateBusinessData(activeBusiness.id, "users", users).catch((err) => console.error("Failed to sync users:", err));
+  }, [users, activeBusiness, dataReady]);
+
+  useEffect(() => {
+    if (!activeBusiness || !dataReady) return;
+    api.updateBusinessData(activeBusiness.id, "payrollSettings", payrollSettings).catch((err) => console.error("Failed to sync payroll settings:", err));
+  }, [payrollSettings, activeBusiness, dataReady]);
 
   const handleUpdateSettings = (newSettings: BusinessSettings) => {
     setSettings(newSettings);
     if (activeBusiness) {
-      localStorage.setItem(`tickit_${activeBusiness.id}_settings`, JSON.stringify(newSettings));
-
       const updatedBiz = { ...activeBusiness, name: newSettings.name, settings: newSettings };
       setActiveBusiness(updatedBiz);
 
@@ -371,7 +365,8 @@ export default function App() {
               setEmployees={setEmployees}
               payrollRecords={payrollRecords}
               setPayrollRecords={setPayrollRecords}
-              businessId={activeBusiness.id}
+              payrollSettings={payrollSettings}
+              setPayrollSettings={setPayrollSettings}
             />
           )}
           {activeTab === "users" && (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Employee, PayrollRecord, WorkerType } from "../types";
+import { Employee, PayrollRecord, WorkerType, GlobalPayrollSettings } from "../types";
 import { generateUUID } from "../utils";
 import {
   Users,
@@ -22,25 +22,20 @@ import {
   ToggleRight
 } from "lucide-react";
 
-interface GlobalPayrollSettings {
-  defaultHourlyRate: number;
-  defaultCommissionRate: number; // percentage, e.g. 10 for 10%
-  defaultFlatFee: number;
-  taxWithholdingRate: number; // percentage, e.g. 15 for 15%
-}
-
 export function Payroll({
   employees,
   setEmployees,
   payrollRecords,
   setPayrollRecords,
-  businessId,
+  payrollSettings,
+  setPayrollSettings,
 }: {
   employees: Employee[];
   setEmployees: React.Dispatch<React.SetStateAction<Employee[]>>;
   payrollRecords: PayrollRecord[];
   setPayrollRecords: React.Dispatch<React.SetStateAction<PayrollRecord[]>>;
-  businessId: string;
+  payrollSettings: GlobalPayrollSettings;
+  setPayrollSettings: React.Dispatch<React.SetStateAction<GlobalPayrollSettings>>;
 }) {
   const [activeSubTab, setActiveSubTab] = useState<"employees" | "history" | "settings">(
     "employees"
@@ -49,28 +44,7 @@ export function Payroll({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
-  // Load and manage custom business-level global payroll settings
-  const [payrollSettings, setPayrollSettings] = useState<GlobalPayrollSettings>(() => {
-    const saved = localStorage.getItem(`tickit_${businessId}_payroll_settings`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        // Fallback
-      }
-    }
-    return {
-      defaultHourlyRate: 25,
-      defaultCommissionRate: 10,
-      defaultFlatFee: 1500,
-      taxWithholdingRate: 12,
-    };
-  });
-
-  // Save settings when changed
-  useEffect(() => {
-    localStorage.setItem(`tickit_${businessId}_payroll_settings`, JSON.stringify(payrollSettings));
-  }, [payrollSettings, businessId]);
+  // Business-level global payroll settings are persisted by the parent via the authenticated API.
 
   const processPayroll = () => {
     const activeEmployees = employees.filter((e) => e.status === "active");
