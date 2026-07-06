@@ -1,15 +1,36 @@
 import { AuthenticatedUser, Business } from "../types";
 
 const API_BASE = "/api";
+const CSRF_COOKIE_NAME = "tickit_csrf";
 
 class ApiError extends Error {}
 
+function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${name}=`;
+  return document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix))
+    ?.slice(prefix.length) || null;
+}
+
+function isMutating(method?: string): boolean {
+  return !!method && !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
+  const method = options.method?.toUpperCase();
+  const csrfToken = isMutating(method) ? getCookie(CSRF_COOKIE_NAME) : null;
   try {
     response = await fetch(`${API_BASE}${path}`, {
       credentials: "include",
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      headers: {
+        "Content-Type": "application/json",
+        ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+        ...(options.headers || {}),
+      },
       ...options,
     });
   } catch (networkErr) {
@@ -41,6 +62,8 @@ export const api = {
 
   me: () => request<{ user: AuthenticatedUser }>("/auth/me"),
 
+  refreshCsrf: () => request<{ csrfToken: string }>("/auth/csrf"),
+
   oauthGoogle: (accessToken: string) =>
     request<{ user: AuthenticatedUser }>("/auth/oauth/google", {
       method: "POST",
@@ -59,6 +82,15 @@ export const api = {
     request<{ business: Business }>("/businesses", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+
+  getBusinessData: <T>(businessId: string, key: string) =>
+    request<{ data: T }>(`/businesses/${businessId}/data/${key}`),
+
+  updateBusinessData: <T>(businessId: string, key: string, data: T) =>
+    request<{ ok: true }>(`/businesses/${businessId}/data/${key}`, {
+      method: "PUT",
+      body: JSON.stringify({ data }),
     }),
 
   updateBusinessSettings: (businessId: string, settings: Partial<Business["settings"]>) =>
