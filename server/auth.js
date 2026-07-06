@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { db } from "./db.js";
-import { issueSession, clearSession, authenticate } from "./middleware.js";
+import { issueSession, clearSession, authenticate, issueCsrfToken, requireCsrf } from "./middleware.js";
 
 export const authRouter = express.Router();
 
@@ -41,9 +41,12 @@ function toPublicUser(row) {
   };
 }
 
-function upsertOAuthUser({ provider, providerId, email, name, photoUrl }) {
+function upsertOAuthUser({ provider, providerId, email, name, photoUrl, emailVerified = false }) {
   const normalizedEmail = email.toLowerCase().trim();
-  let user = db.prepare("SELECT * FROM users WHERE email = ?").get(normalizedEmail);
+  let user = db.prepare("SELECT * FROM users WHERE provider = ? AND provider_id = ?").get(provider, providerId);
+  if (!user && emailVerified) {
+    user = db.prepare("SELECT * FROM users WHERE email = ? AND provider = 'email'").get(normalizedEmail);
+  }
   if (!user) {
     const id = `${provider.slice(0, 1)}_${crypto.randomUUID().slice(0, 8)}`;
     db.prepare(
@@ -54,10 +57,26 @@ function upsertOAuthUser({ provider, providerId, email, name, photoUrl }) {
     db.prepare("UPDATE users SET photo_url = ? WHERE id = ?").run(photoUrl, user.id);
     user = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
   }
+  if (user.provider !== provider || user.provider_id !== providerId) {
+    db.prepare("UPDATE users SET provider = ?, provider_id = ?, photo_url = COALESCE(?, photo_url) WHERE id = ?").run(
+      provider,
+      providerId,
+      photoUrl || null,
+      user.id
+    );
+    user = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+  }
   return user;
 }
 
+authRouter.get("/csrf", authenticate, (req, res) => {
+  res.json({ csrfToken: issueCsrfToken(res) });
+});
+
 authRouter.post("/register", registerLimiter, (req, res) => {
+  if (process.env.ALLOW_PUBLIC_REGISTRATION === "false") {
+    return res.status(403).json({ error: "Public registration is disabled for this deployment." });
+  }
   const { name, email, password } = req.body || {};
 
   if (!name?.trim() || !email?.trim() || !password) {
@@ -121,7 +140,7 @@ authRouter.post("/login", loginLimiter, (req, res) => {
   res.json({ user: toPublicUser(user) });
 });
 
-authRouter.post("/logout", (req, res) => {
+authRouter.post("/logout", authenticate, requireCsrf, (req, res) => {
   clearSession(res);
   res.json({ ok: true });
 });
@@ -161,6 +180,7 @@ authRouter.post("/oauth/google", async (req, res) => {
       email: profile.email,
       name: profile.name || "Google User",
       photoUrl: profile.picture,
+      emailVerified: profile.email_verified === true,
     });
     issueSession(res, user);
     res.json({ user: toPublicUser(user) });
@@ -187,13 +207,17 @@ authRouter.post("/oauth/facebook", async (req, res) => {
       return res.status(401).json({ error: "Facebook token verification failed. Please try signing in again." });
     }
     const profile = await response.json();
-    const email = profile.email || `fb_${profile.id}@facebook.placeholder`;
+    if (!profile.email) {
+      return res.status(400).json({ error: "Facebook did not return an email address. Please use email/password registration." });
+    }
+    const email = profile.email;
     const user = upsertOAuthUser({
       provider: "facebook",
       providerId: profile.id,
       email,
       name: profile.name || "Facebook User",
       photoUrl: profile.picture?.data?.url,
+      emailVerified: true,
     });
     issueSession(res, user);
     res.json({ user: toPublicUser(user) });

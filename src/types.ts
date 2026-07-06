@@ -164,3 +164,11 @@ export interface FileItem {
   uploadedBy: string;
   jobId?: string;
 }
+
+
+export interface GlobalPayrollSettings {
+  defaultHourlyRate: number;
+  defaultCommissionRate: number;
+  defaultFlatFee: number;
+  taxWithholdingRate: number;
+}

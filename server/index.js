@@ -15,9 +15,26 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1); // needed for correct req.ip / rate-limiting behind Nginx
 app.use(
   helmet({
-    // The SPA loads its own bundled JS/CSS with no inline scripts, so a
-    // strict default CSP is safe; disable only if you add third-party embeds.
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "https://www.gstatic.com", "https://apis.google.com", "https://connect.facebook.net"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "img-src": ["'self'", "data:", "https:"],
+        "connect-src": [
+          "'self'",
+          "https://www.googleapis.com",
+          "https://securetoken.googleapis.com",
+          "https://identitytoolkit.googleapis.com",
+          "https://graph.facebook.com",
+        ],
+        "frame-src": ["'self'", "https://accounts.google.com", "https://www.facebook.com"],
+        "frame-ancestors": ["'none'"],
+        "base-uri": ["'self'"],
+        "object-src": ["'none'"],
+      },
+    },
   })
 );
 app.use(express.json({ limit: "1mb" }));

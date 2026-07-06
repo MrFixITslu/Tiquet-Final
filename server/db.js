@@ -40,8 +40,30 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS business_data (
+    business_id TEXT NOT NULL,
+    data_key TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (business_id, data_key),
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS business_members (
+    business_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'Admin',
+    permissions_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (business_id, user_id),
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_businesses_owner ON businesses(owner_email);
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_provider_identity ON users(provider, provider_id) WHERE provider_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_business_data_key ON business_data(data_key);
 `);
 
 console.log(`[db] SQLite database ready at ${DB_PATH}`);
