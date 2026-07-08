@@ -196,8 +196,7 @@ export function AuthGate({
         id: `usr_${generateUUID().slice(0, 8)}`,
         name: name.trim(),
         email: email.toLowerCase().trim(),
-        password,
-        photoUrl: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80`
+        password
       };
 
       const updatedUsers = [...registeredUsers, newUser];
@@ -284,8 +283,7 @@ export function AuthGate({
         id: `g_fallback_${generateUUID().slice(0, 8)}`,
         name: googleFallbackName.trim() || googleFallbackEmail.split("@")[0] || "Google User",
         email: googleFallbackEmail.toLowerCase().trim(),
-        provider: "google",
-        photoUrl: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80"
+        provider: "google"
       };
       handleUserAuthenticated(authenticatedUser);
     }, 1000);
@@ -344,7 +342,7 @@ export function AuthGate({
               name: fbUser.name || "Facebook User",
               email: fbUser.email || `${fbUser.id}@facebook.user.com`,
               provider: "facebook",
-              photoUrl: fbUser.picture?.data?.url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80"
+              photoUrl: fbUser.picture?.data?.url || undefined
             };
 
             handleUserAuthenticated(authenticatedUser);
