@@ -15,7 +15,7 @@ COPY . .
 # Build the production application
 RUN npm run build
 
-# Stage 2: Serve the application with Nginx on port 3000
+# Stage 2: Serve the application with Nginx on port 4010
 FROM nginx:alpine
 
 # Copy the custom nginx configuration
@@ -24,8 +24,8 @@ COPY --from=build /app/nginx.conf /etc/nginx/conf.d/default.conf
 # Copy build files from Stage 1 to Nginx public directory
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Expose port 3000
-EXPOSE 3000
+# Expose port 4010
+EXPOSE 4010
 
 # Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
