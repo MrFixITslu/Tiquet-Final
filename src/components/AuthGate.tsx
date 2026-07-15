@@ -12,7 +12,6 @@ import {
   Eye, 
   EyeOff, 
   AlertCircle, 
-  Info,
   Facebook,
   Chrome
 } from "lucide-react";
@@ -28,19 +27,27 @@ interface StoredUser {
   photoUrl?: string;
 }
 
+// INTERIM MITIGATION: hash the password before it ever touches localStorage, instead of
+// storing it in plaintext. This is not a substitute for real server-side auth (bcrypt +
+// JWT already exist unused in server/index.js) — anyone with devtools access can still
+// call handleUserAuthenticated directly and bypass this client-side check entirely. The
+// real fix is wiring this component to the restored backend's /api/auth endpoints.
+async function hashPassword(password: string): Promise<string> {
+  const data = new TextEncoder().encode(password);
+  const digest = await window.crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+
 export function AuthGate({
   onAuthComplete,
 }: {
   onAuthComplete: (user: AuthenticatedUser, activeBusiness: Business) => void;
 }) {
-  const [authStep, setAuthStep] = useState<"login" | "loading" | "business_select" | "create_business" | "google_fallback">("login");
+  const [authStep, setAuthStep] = useState<"login" | "loading" | "business_select" | "create_business" | "google_unavailable">("login");
   const [loginTab, setLoginTab] = useState<"email" | "facebook" | "google">("email");
   const [loadingText, setLoadingText] = useState("");
   const [tempUser, setTempUser] = useState<AuthenticatedUser | null>(null);
-
-  // Google Fallback states for robust sandbox/iframe deployment
-  const [googleFallbackEmail, setGoogleFallbackEmail] = useState("");
-  const [googleFallbackName, setGoogleFallbackName] = useState("");
 
   // Email Auth state
   const [isRegistering, setIsRegistering] = useState(false);
@@ -168,7 +175,7 @@ export function AuthGate({
   };
 
   // EMAIL REGISTRATION & LOGIN HANDLERS
-  const handleEmailAuth = (e: React.FormEvent) => {
+  const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
     setSuccessMessage("");
@@ -179,6 +186,7 @@ export function AuthGate({
     }
 
     const registeredUsers = getRegisteredUsers();
+    const passwordHash = await hashPassword(password);
 
     if (isRegistering) {
       if (!name.trim()) {
@@ -196,7 +204,7 @@ export function AuthGate({
         id: `usr_${generateUUID().slice(0, 8)}`,
         name: name.trim(),
         email: email.toLowerCase().trim(),
-        password
+        password: passwordHash
       };
 
       const updatedUsers = [...registeredUsers, newUser];
@@ -219,7 +227,7 @@ export function AuthGate({
 
     } else {
       const matchedUser = registeredUsers.find(
-        u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+        u => u.email.toLowerCase() === email.toLowerCase() && u.password === passwordHash
       );
 
       if (!matchedUser) {
@@ -243,7 +251,7 @@ export function AuthGate({
     }
   };
 
-  // ACTUAL GOOGLE POPUP LOGIN HANDLER WITH AUTOMATIC IFRAME FALLBACK
+  // ACTUAL GOOGLE POPUP LOGIN HANDLER
   const handleGoogleLogin = async () => {
     setErrorMessage("");
     setLoadingText("Verifying Google SSO credentials and isolating your session...");
@@ -260,33 +268,16 @@ export function AuthGate({
         };
         handleUserAuthenticated(authenticatedUser);
       } else {
-        // Fallback to secure manual authentication screen (helpful in sandboxed environments)
-        setGoogleFallbackEmail(email || "Vision79SLU@gmail.com");
-        setAuthStep("google_fallback");
+        // SECURITY: there used to be a "fallback" screen here that let anyone type an
+        // arbitrary email address and log straight in as that identity with zero
+        // verification — a full auth bypass. Google sign-in either succeeds through the
+        // verified popup flow above, or it fails; there is no safe self-service fallback.
+        setAuthStep("google_unavailable");
       }
     } catch (err: any) {
-      console.warn("Standard Google SSO Popup failed or blocked in iframe. Triggering secure custom fallback mode:", err);
-      setGoogleFallbackEmail(email || "Vision79SLU@gmail.com");
-      setAuthStep("google_fallback");
+      console.warn("Google SSO popup failed or was blocked (common in iframe/sandboxed contexts):", err);
+      setAuthStep("google_unavailable");
     }
-  };
-
-  const handleGoogleFallbackSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!googleFallbackEmail.trim()) return;
-
-    setLoadingText("Authenticating via secure Google SSO channel...");
-    setAuthStep("loading");
-
-    setTimeout(() => {
-      const authenticatedUser: AuthenticatedUser = {
-        id: `g_fallback_${generateUUID().slice(0, 8)}`,
-        name: googleFallbackName.trim() || googleFallbackEmail.split("@")[0] || "Google User",
-        email: googleFallbackEmail.toLowerCase().trim(),
-        provider: "google"
-      };
-      handleUserAuthenticated(authenticatedUser);
-    }, 1000);
   };
 
   // ACTUAL FACEBOOK POPUP LOGIN HANDLER
@@ -314,12 +305,20 @@ export function AuthGate({
   // Listen for the postMessage event sent from the loaded popup callback page
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      // Validate origin is from the same origin, run.app, or duckdns.org
+      // Validate origin is from the same origin, our Cloud Run domain, or our duckdns.org subdomain.
+      // IMPORTANT: this must be an exact/suffix match on the parsed hostname, not a substring
+      // check on the raw origin string — origin.includes("duckdns.org") would also match an
+      // attacker-controlled domain like "https://duckdns.org.attacker.com".
       const origin = event.origin;
-      const isAllowedOrigin = 
-        origin === window.location.origin ||
-        origin.endsWith(".run.app") ||
-        origin.includes("duckdns.org");
+      let isAllowedOrigin = origin === window.location.origin;
+      if (!isAllowedOrigin) {
+        try {
+          const host = new URL(origin).hostname;
+          isAllowedOrigin = host.endsWith(".run.app") || host === "duckdns.org" || host.endsWith(".duckdns.org");
+        } catch {
+          isAllowedOrigin = false;
+        }
+      }
 
       if (!isAllowedOrigin) {
         return;
@@ -555,78 +554,43 @@ export function AuthGate({
           </div>
         )}
 
-        {/* GOOGLE FALLBACK SECURE CONTAINER */}
-        {authStep === "google_fallback" && (
-          <form onSubmit={handleGoogleFallbackSubmit} className="space-y-6">
+        {/* GOOGLE SIGN-IN UNAVAILABLE — informational only, no unverified login path */}
+        {authStep === "google_unavailable" && (
+          <div className="space-y-6">
             <div className="space-y-2 text-left">
-              <div className="p-3 bg-indigo-950/40 border border-indigo-900/50 rounded-xl text-xs text-slate-300 flex items-start gap-2.5">
-                <Info className="w-4.5 h-4.5 text-indigo-400 shrink-0 mt-0.5" />
+              <div className="p-3 bg-amber-950/40 border border-amber-900/50 rounded-xl text-xs text-slate-300 flex items-start gap-2.5">
+                <AlertCircle className="w-4.5 h-4.5 text-amber-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-white">Google Sandbox Mode Enabled</p>
+                  <p className="font-semibold text-white">Google Sign-In Unavailable</p>
                   <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                    SSO popup windows can be blocked by browser iframe protection policies. Confirm your Google account email to authorize securely.
+                    The Google sign-in popup could not complete — it may have been blocked by
+                    your browser or by iframe restrictions. For your security, we can't offer
+                    an unverified email-only login as a substitute. Please allow popups and try
+                    again, or sign in with your email and password below.
                   </p>
-                </div>
-              </div>
-              <h2 className="text-lg font-bold text-white mt-4">Authorize with Google SSO</h2>
-              <p className="text-xs text-slate-500">
-                Provide your Google Account credentials to link your business profile partitions.
-              </p>
-            </div>
-
-            <div className="space-y-4 text-left">
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Google Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="email"
-                    required
-                    value={googleFallbackEmail}
-                    onChange={(e) => setGoogleFallbackEmail(e.target.value)}
-                    placeholder="e.g. your-name@gmail.com"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Full Name (Optional)
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="text"
-                    value={googleFallbackName}
-                    onChange={(e) => setGoogleFallbackName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
-                  />
                 </div>
               </div>
             </div>
 
             <div className="flex flex-col gap-3 pt-2">
               <button
-                type="submit"
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 animate-pulse"
+                type="button"
+                onClick={handleGoogleLogin}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
               >
                 <Chrome className="w-4 h-4" />
-                Authenticate & Access Division
+                Try Google Sign-In Again
               </button>
-              
+
               <button
                 type="button"
                 onClick={() => setAuthStep("login")}
                 className="w-full py-2.5 bg-transparent border border-slate-800 hover:bg-slate-900/50 text-slate-400 hover:text-white rounded-xl text-xs transition-all cursor-pointer font-semibold"
               >
-                Cancel and Go Back
+                Use Email &amp; Password Instead
               </button>
             </div>
-          </form>
+          </div>
         )}
 
         {/* LOADING HANDSHAKE ANIMATION */}

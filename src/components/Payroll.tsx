@@ -108,6 +108,17 @@ export function Payroll({
     });
     
     setPayrollRecords([...newRecords, ...payrollRecords]);
+
+    // BUG FIX: hoursWorked accumulates continuously via check-in/check-out and manual time
+    // logging, but was never reset after being paid out — every subsequent payroll run was
+    // re-paying the same already-compensated hours on top of new ones. Reset hourly
+    // employees' hoursWorked to 0 now that this batch has been included in a payroll record.
+    setEmployees(
+      employees.map((e) =>
+        e.status === "active" && e.workerType === "hourly" ? { ...e, hoursWorked: 0 } : e
+      )
+    );
+
     setActiveSubTab("history");
     alert(`Generated ${newRecords.length} payroll records for active employees with a ${payrollSettings.taxWithholdingRate}% standard tax withholding.`);
   };
