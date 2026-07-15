@@ -314,9 +314,14 @@ export function AuthGate({
   // Listen for the postMessage event sent from the loaded popup callback page
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      // Validate origin is from standard app or localhost
+      // Validate origin is from the same origin, run.app, or duckdns.org
       const origin = event.origin;
-      if (!origin.endsWith(".run.app") && !origin.includes("localhost")) {
+      const isAllowedOrigin = 
+        origin === window.location.origin ||
+        origin.endsWith(".run.app") ||
+        origin.includes("duckdns.org");
+
+      if (!isAllowedOrigin) {
         return;
       }
 
