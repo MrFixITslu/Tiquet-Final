@@ -43,6 +43,31 @@ export interface JobNote {
   user: string;
 }
 
+export interface JobMessage {
+  id: string;
+  job_id: string;
+  sender: string;
+  content: string;
+  timestamp: string;
+}
+
+export interface JobLineItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface Deliverable {
+  id: string;
+  title: string;
+  type: "digital" | "physical";
+  fileUrl?: string;
+  deliveryMethod?: "pickup" | "delivery";
+  deliveryFee?: number;
+  trackingInfo?: string;
+}
+
 export type WorkerType = "salary" | "hourly" | "bi-weekly" | "commission" | "flat-fee";
 
 export interface TimeCard {
@@ -90,11 +115,23 @@ export interface Client {
   createdAt: string;
 }
 
+// Tracks a work session against a specific job (distinct from Employee.timeCards,
+// which is payroll-hours bookkeeping). Used by JobDetailView's timer feature.
+export interface TimeLog {
+  id: string;
+  employeeId: string;
+  startTime: string;
+  endTime?: string;
+  description?: string;
+  status: JobStatus;
+}
+
 export interface Job {
   id: string;
   title: string;
   client: string; // Keeping for backward compatibility or display name
   clientId?: string; // Link to Client entity
+  clientEmail?: string;
   description: string;
   status: JobStatus;
   createdAt: string;
@@ -106,6 +143,17 @@ export interface Job {
   tags?: string[];
   activityLog?: ActivityLogEntry[];
   notes?: JobNote[];
+  // Client portal fields
+  secureToken?: string;
+  messages?: JobMessage[];
+  depositPaid?: boolean;
+  quoteApproved?: number;
+  lineItems?: JobLineItem[];
+  deliverables?: Deliverable[];
+  // Job-level time tracking
+  timeLogs?: TimeLog[];
+  timerStartedAt?: string | null;
+  stageAssignments?: Partial<Record<JobStatus, string>>;
 }
 
 export type PagePermission =

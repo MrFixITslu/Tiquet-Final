@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Client, Job, COLUMNS } from "../types";
 import { generateUUID } from "../utils";
+import { apiFetch } from "../lib/api";
 
 interface ClientsProps {
   clients: Client[];
@@ -35,30 +36,55 @@ export function Clients({ clients, setClients, jobs }: ClientsProps) {
       c.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleDelete = (id: string) => {
-    if (confirm("Are you sure you want to delete this client?")) {
-      setClients(clients.filter((c) => c.id !== id));
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this client?")) return;
+    setClients(clients.filter((c) => c.id !== id));
+    try {
+      const res = await apiFetch(`/api/clients/${id}`, { method: "DELETE" });
+      if (!res.ok) console.error("Failed to delete client on server");
+    } catch (err) {
+      console.error("Failed to delete client:", err);
     }
   };
 
-  const handleSave = (clientData: Omit<Client, "id" | "createdAt">) => {
+  const handleSave = async (clientData: Omit<Client, "id" | "createdAt">) => {
     if (editingClient) {
-      setClients(
-        clients.map((c) =>
-          c.id === editingClient.id ? { ...c, ...clientData } : c
-        )
-      );
+      const updated = { ...editingClient, ...clientData };
+      setClients(clients.map((c) => (c.id === editingClient.id ? updated : c)));
+      try {
+        const res = await apiFetch(`/api/clients/${editingClient.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(clientData),
+        });
+        if (!res.ok) console.error("Failed to update client on server");
+      } catch (err) {
+        console.error("Failed to update client:", err);
+      }
     } else {
-      const newClient: Client = {
-        ...clientData,
-        id: generateUUID(),
-        createdAt: new Date().toISOString(),
-      };
-      setClients([newClient, ...clients]);
+      try {
+        const res = await apiFetch("/api/clients", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(clientData),
+        });
+        if (res.ok) {
+          const serverClient = await res.json();
+          setClients([serverClient, ...clients]);
+        } else {
+          const newClient: Client = { ...clientData, id: generateUUID(), createdAt: new Date().toISOString() };
+          setClients([newClient, ...clients]);
+        }
+      } catch (err) {
+        console.error("Failed to save client to server:", err);
+        const newClient: Client = { ...clientData, id: generateUUID(), createdAt: new Date().toISOString() };
+        setClients([newClient, ...clients]);
+      }
     }
     setIsModalOpen(false);
     setEditingClient(null);
   };
+
 
   return (
     <div className="space-y-6">

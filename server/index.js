@@ -892,6 +892,26 @@ app.get("/api/clients", authenticateToken, (req, res) => {
     }
 });
 
+// Create a new client
+app.post("/api/clients", authenticateToken, (req, res) => {
+    const { name, company, email, phone, address } = sanitizeObject(req.body);
+    if (!name || !email) return badRequest(res, "Name and email are required");
+    if (!isValidEmail(email)) return badRequest(res, "Invalid email format");
+
+    try {
+        const id = uuidv4();
+        const createdAt = new Date().toISOString();
+        db.prepare(
+            "INSERT INTO clients (id, name, company, email, phone, address, createdAt, account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(id, name, company || null, email, phone || null, address || null, createdAt, req.accountId);
+
+        const newClient = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
+        res.status(201).json({ ...newClient, jobs: [], totalJobs: 0, activeJobs: 0, totalRevenue: 0 });
+    } catch (error) {
+        res.status(500).json({ error: isProduction ? "Internal Server Error" : error.message });
+    }
+});
+
 // Update client contact info
 app.put("/api/clients/:id", authenticateToken, (req, res) => {
     const { id } = req.params;
@@ -899,6 +919,18 @@ app.put("/api/clients/:id", authenticateToken, (req, res) => {
     try {
         db.prepare("UPDATE clients SET phone = ?, company = ?, notes = ?, email = ? WHERE id = ? AND account_id = ?")
             .run(phone || null, company || null, notes || null, email || null, id, req.accountId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: isProduction ? "Internal Server Error" : error.message });
+    }
+});
+
+// Delete a client
+app.delete("/api/clients/:id", authenticateToken, (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = db.prepare("DELETE FROM clients WHERE id = ? AND account_id = ?").run(id, req.accountId);
+        if (result.changes === 0) return res.status(404).json({ error: "Client not found" });
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: isProduction ? "Internal Server Error" : error.message });

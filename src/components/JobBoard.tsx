@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import { Job, JobStatus, ActivityLogEntry, COLUMNS, Employee, Client, BusinessSettings } from "../types";
 import { Plus, MoreHorizontal, Clock, DollarSign, ArrowRight, ArrowLeft } from "lucide-react";
 import { JobModal } from "./JobModal";
-import { JobDetailModal } from "./JobDetailModal";
+import { JobDetailView } from "./JobDetailView";
 import { generateUUID } from "../utils";
+import { apiFetch } from "../lib/api";
 
 export function JobBoard({
   jobs,
@@ -22,36 +23,73 @@ export function JobBoard({
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const moveJob = (jobId: string, newStatus: JobStatus) => {
-    setJobs(
-      jobs.map((job) => {
-        if (job.id === jobId) {
-          const newLog: ActivityLogEntry = {
-            id: generateUUID(),
-            action: `Moved from ${job.status} to ${newStatus}`,
-            timestamp: new Date().toISOString(),
-            user: "Current User", // In a real app, this would be the logged-in user
-          };
-          return {
-            ...job,
-            status: newStatus,
-            activityLog: [...(job.activityLog || []), newLog],
-          };
-        }
-        return job;
-      }),
-    );
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) return;
+
+    const newLog: ActivityLogEntry = {
+      id: generateUUID(),
+      action: `Moved from ${job.status} to ${newStatus}`,
+      timestamp: new Date().toISOString(),
+      user: "Current User", // In a real app, this would be the logged-in user
+    };
+    const updatedJob: Job = {
+      ...job,
+      status: newStatus,
+      activityLog: [...(job.activityLog || []), newLog],
+    };
+
+    // Optimistic local update, then persist to the server.
+    setJobs(jobs.map((j) => (j.id === jobId ? updatedJob : j)));
+
+    apiFetch(`/api/jobs/${jobId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedJob),
+    }).catch((err) => console.error("Failed to save job status change:", err));
   };
 
-  const handleSaveNewJob = (jobData: Omit<Job, "id" | "createdAt">) => {
+  const handleSaveNewJob = async (jobData: Omit<Job, "id" | "createdAt">) => {
     const newJob: Job = {
       ...jobData,
       id: generateUUID(),
       createdAt: new Date().toISOString(),
     };
+    try {
+      const res = await apiFetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newJob),
+      });
+      if (res.ok) {
+        const serverJob = await res.json();
+        setJobs([...jobs, serverJob]);
+        return;
+      }
+      console.error("Failed to save job to server, keeping local copy only");
+    } catch (err) {
+      console.error("Failed to save job to server:", err);
+    }
     setJobs([...jobs, newJob]);
   };
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId);
+
+  // JobDetailView is a full-page view (Back button), not a modal — it owns the client
+  // portal link, chat, deliverables, and quote/invoice flows, so it replaces the whole
+  // board while a job is open rather than overlaying it.
+  if (selectedJob) {
+    return (
+      <JobDetailView
+        job={selectedJob}
+        employees={employees}
+        settings={settings}
+        onBack={() => setSelectedJobId(null)}
+        onUpdate={(updatedJob) => {
+          setJobs(jobs.map((j) => (j.id === updatedJob.id ? updatedJob : j)));
+        }}
+      />
+    );
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -116,19 +154,6 @@ export function JobBoard({
         employees={employees}
         clients={clients}
       />
-
-      {selectedJob && (
-        <JobDetailModal
-          job={selectedJob}
-          employees={employees}
-          clients={clients}
-          settings={settings}
-          onClose={() => setSelectedJobId(null)}
-          onUpdate={(updatedJob) => {
-            setJobs(jobs.map((j) => (j.id === updatedJob.id ? updatedJob : j)));
-          }}
-        />
-      )}
     </div>
   );
 }

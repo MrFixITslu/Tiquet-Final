@@ -4,8 +4,6 @@ import {
   Check, 
   Building2, 
   Shield, 
-  PlusCircle, 
-  ArrowRight, 
   Mail, 
   Lock, 
   User, 
@@ -13,168 +11,89 @@ import {
   EyeOff, 
   AlertCircle, 
   Facebook,
-  Chrome
+  Chrome,
+  KeyRound
 } from "lucide-react";
 import { AuthenticatedUser, Business } from "../types";
-import { generateUUID } from "../utils";
-import { googleSignIn } from "../lib/googleDrive";
-
-interface StoredUser {
-  id: string;
-  name: string;
-  email: string;
-  password?: string;
-  photoUrl?: string;
-}
-
-// INTERIM MITIGATION: hash the password before it ever touches localStorage, instead of
-// storing it in plaintext. This is not a substitute for real server-side auth (bcrypt +
-// JWT already exist unused in server/index.js) — anyone with devtools access can still
-// call handleUserAuthenticated directly and bypass this client-side check entirely. The
-// real fix is wiring this component to the restored backend's /api/auth endpoints.
-async function hashPassword(password: string): Promise<string> {
-  const data = new TextEncoder().encode(password);
-  const digest = await window.crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
+import { apiFetch } from "../lib/api";
 
 export function AuthGate({
   onAuthComplete,
 }: {
   onAuthComplete: (user: AuthenticatedUser, activeBusiness: Business) => void;
 }) {
-  const [authStep, setAuthStep] = useState<"login" | "loading" | "business_select" | "create_business" | "google_unavailable">("login");
-  const [loginTab, setLoginTab] = useState<"email" | "facebook" | "google">("email");
+  // NOTE ON ARCHITECTURE: the real backend ties exactly one account to each login
+  // (created at registration via companyName) — there is no client-side "business
+  // switching" concept anymore. The business_select / create_business steps that used
+  // to live here were a purely client-side fiction on top of localStorage and have been
+  // removed; completeLogin() below builds the Business object straight from the server.
+  const [authStep, setAuthStep] = useState<"login" | "loading" | "google_unavailable" | "two_factor">("login");
   const [loadingText, setLoadingText] = useState("");
-  const [tempUser, setTempUser] = useState<AuthenticatedUser | null>(null);
 
   // Email Auth state
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  // 2FA state (server supports TOTP 2FA on login — see /api/auth/login/2fa)
+  const [tempToken, setTempToken] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
 
   // Facebook Auth State retrieved from environment
   const fbAppId = (import.meta as any).env.VITE_FACEBOOK_APP_ID || "";
   const [fbError, setFbError] = useState("");
 
-  // Form states for creating a new business
-  const [newBusinessName, setNewBusinessName] = useState("");
-  const [newBusinessEmail, setNewBusinessEmail] = useState("");
-  const [newBusinessPhone, setNewBusinessPhone] = useState("");
-  const [newBusinessAddress, setNewBusinessAddress] = useState("");
+  // Stores the JWT and hands off to the parent with a real AuthenticatedUser + Business
+  // built from the server's response, instead of anything read from localStorage.
+  const completeLogin = async (token: string, user: any) => {
+    localStorage.setItem("token", token);
 
-  // Fetch registered users from localStorage cleanly without any demo seeding
-  const getRegisteredUsers = (): StoredUser[] => {
-    const stored = localStorage.getItem("tickit_registered_users");
-    if (stored) {
-      try {
-        return JSON.parse(stored) as StoredUser[];
-      } catch (e) {
-        // Fallback
-      }
-    }
-    return [];
-  };
-
-  // Fetch registered businesses from localStorage cleanly without any demo seeding
-  const getRegisteredBusinesses = (): Business[] => {
-    const stored = localStorage.getItem("tickit_registered_businesses");
-    if (stored) {
-      try {
-        return JSON.parse(stored) as Business[];
-      } catch (e) {
-        // Fallback
-      }
-    }
-    return [];
-  };
-
-  const [businesses, setBusinesses] = useState<Business[]>(() => {
-    return getRegisteredBusinesses();
-  });
-
-  const handleUserAuthenticated = (user: AuthenticatedUser) => {
-    setTempUser(user);
-
-    // Auto register user if they do not exist in local stored database
-    const registeredUsers = getRegisteredUsers();
-    const userExists = registeredUsers.some(u => u.email.toLowerCase() === user.email.toLowerCase());
-    if (!userExists) {
-      const newUser: StoredUser = {
-        id: user.id,
-        name: user.name,
-        email: user.email.toLowerCase().trim(),
-        photoUrl: user.photoUrl
-      };
-      localStorage.setItem("tickit_registered_users", JSON.stringify([...registeredUsers, newUser]));
-    }
-
-    // Query if they already have an existing business division profile
-    const currentBusinesses = getRegisteredBusinesses();
-    const userBusinesses = currentBusinesses.filter((biz) => biz.ownerEmail.toLowerCase() === user.email.toLowerCase());
-
-    if (userBusinesses.length > 0) {
-      // Direct pass: skip select screen and instantly load business profile dashboard
-      setLoadingText("Restoring isolated business partition...");
-      setAuthStep("loading");
-      setTimeout(() => {
-        onAuthComplete(user, userBusinesses[0]);
-      }, 1000);
-    } else {
-      // Go to standard setup/selection step
-      setAuthStep("business_select");
-    }
-  };
-
-  const handleSelectBusiness = (biz: Business) => {
-    if (!tempUser) return;
-    onAuthComplete(tempUser, biz);
-  };
-
-  const handleCreateBusiness = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tempUser || !newBusinessName.trim()) return;
-
-    // Users can only register 1 business per subscription
-    const userBusinesses = businesses.filter((biz) => biz.ownerEmail === tempUser.email);
-    if (userBusinesses.length >= 1) {
-      setErrorMessage("Subscription Limit Reached: You are only allowed to register 1 business division per subscription.");
-      setAuthStep("business_select");
-      return;
-    }
-
-    const newBiz: Business = {
-      id: `biz_${generateUUID().slice(0, 8)}`,
-      name: newBusinessName,
-      ownerEmail: tempUser.email,
-      settings: {
-        name: newBusinessName,
-        address: newBusinessAddress || "Not configured",
-        email: newBusinessEmail || tempUser.email,
-        phone: newBusinessPhone || "+1 (555) 000-0000",
-        logoUrl: "",
-        paymentTerms: "Due within 30 days.",
-        currency: "USD",
-        taxRate: 0,
-        notificationNewJobAlert: true,
-        notificationStatusChangeAlert: true,
-      }
+    let settings: Business["settings"] = {
+      name: user.name ? `${user.name}'s Business` : "My Business",
+      address: "",
+      email: user.email || "",
+      phone: "",
+      logoUrl: "",
+      paymentTerms: "Due within 30 days.",
+      currency: "USD",
+      taxRate: 0,
     };
 
-    const updated = [...businesses, newBiz];
-    localStorage.setItem("tickit_registered_businesses", JSON.stringify(updated));
-    setBusinesses(updated);
-    
-    // Auto login to the newly created business
-    onAuthComplete(tempUser, newBiz);
+    try {
+      const res = await apiFetch("/api/settings");
+      if (res.ok) {
+        const s = await res.json();
+        if (s && s.name) settings = s;
+      }
+    } catch {
+      // Fall back to the defaults above — settings can be filled in later from the
+      // Settings tab, this shouldn't block login.
+    }
+
+    const authenticatedUser: AuthenticatedUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      provider: (user.oauth_provider as AuthenticatedUser["provider"]) || "email",
+    };
+
+    const business: Business = {
+      id: user.account_id,
+      name: settings.name,
+      ownerEmail: user.email,
+      settings,
+    };
+
+    onAuthComplete(authenticatedUser, business);
   };
 
-  // EMAIL REGISTRATION & LOGIN HANDLERS
+  // EMAIL REGISTRATION & LOGIN — now calls the restored backend directly instead of
+  // reading/writing localStorage.
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
@@ -185,102 +104,104 @@ export function AuthGate({
       return;
     }
 
-    const registeredUsers = getRegisteredUsers();
-    const passwordHash = await hashPassword(password);
-
     if (isRegistering) {
       if (!name.trim()) {
         setErrorMessage("Please enter your full name.");
         return;
       }
-
-      const emailExists = registeredUsers.some(u => u.email.toLowerCase() === email.toLowerCase());
-      if (emailExists) {
-        setErrorMessage("This email is already registered.");
+      if (!companyName.trim()) {
+        setErrorMessage("Please enter your company or business name.");
         return;
       }
+    }
 
-      const newUser: StoredUser = {
-        id: `usr_${generateUUID().slice(0, 8)}`,
-        name: name.trim(),
-        email: email.toLowerCase().trim(),
-        password: passwordHash
-      };
+    setLoadingText(isRegistering ? "Creating your account..." : "Verifying credentials...");
+    setAuthStep("loading");
 
-      const updatedUsers = [...registeredUsers, newUser];
-      localStorage.setItem("tickit_registered_users", JSON.stringify(updatedUsers));
-
-      setSuccessMessage("Account created successfully!");
-      setLoadingText("Initializing secure isolated email tenant session...");
-      setAuthStep("loading");
-
-      setTimeout(() => {
-        const authenticatedUser: AuthenticatedUser = {
-          id: newUser.id,
-          name: newUser.name,
-          email: newUser.email,
-          provider: "email",
-          photoUrl: newUser.photoUrl
-        };
-        handleUserAuthenticated(authenticatedUser);
-      }, 1000);
-
-    } else {
-      const matchedUser = registeredUsers.find(
-        u => u.email.toLowerCase() === email.toLowerCase() && u.password === passwordHash
-      );
-
-      if (!matchedUser) {
-        setErrorMessage("Invalid email or password.");
-        return;
+    try {
+      if (isRegistering) {
+        const res = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            email: email.trim(),
+            password,
+            companyName: companyName.trim(),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setErrorMessage(data.error || "Registration failed.");
+          setAuthStep("login");
+          return;
+        }
+        await completeLogin(data.token, data.user);
+      } else {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email.trim(), password }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setErrorMessage(data.error || "Invalid email or password.");
+          setAuthStep("login");
+          return;
+        }
+        if (data.requires2FA) {
+          setTempToken(data.tempToken);
+          setAuthStep("two_factor");
+          return;
+        }
+        await completeLogin(data.token, data.user);
       }
-
-      setLoadingText("Verifying credentials and loading workspace partitions...");
-      setAuthStep("loading");
-
-      setTimeout(() => {
-        const authenticatedUser: AuthenticatedUser = {
-          id: matchedUser.id,
-          name: matchedUser.name,
-          email: matchedUser.email,
-          provider: "email",
-          photoUrl: matchedUser.photoUrl
-        };
-        handleUserAuthenticated(authenticatedUser);
-      }, 1000);
+    } catch (err) {
+      console.error("Auth request failed:", err);
+      setErrorMessage("Could not reach the server. Please check your connection and try again.");
+      setAuthStep("login");
     }
   };
 
-  // ACTUAL GOOGLE POPUP LOGIN HANDLER
-  const handleGoogleLogin = async () => {
+  const handleTwoFactorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setErrorMessage("");
-    setLoadingText("Verifying Google SSO credentials and isolating your session...");
+    setLoadingText("Verifying your 2FA code...");
     setAuthStep("loading");
     try {
-      const result = await googleSignIn();
-      if (result && result.user) {
-        const authenticatedUser: AuthenticatedUser = {
-          id: `g_${result.user.uid}`,
-          name: result.user.displayName || "Google User",
-          email: result.user.email || "google-user@domain.com",
-          provider: "google",
-          photoUrl: result.user.photoURL || undefined
-        };
-        handleUserAuthenticated(authenticatedUser);
-      } else {
-        // SECURITY: there used to be a "fallback" screen here that let anyone type an
-        // arbitrary email address and log straight in as that identity with zero
-        // verification — a full auth bypass. Google sign-in either succeeds through the
-        // verified popup flow above, or it fails; there is no safe self-service fallback.
-        setAuthStep("google_unavailable");
+      const res = await fetch("/api/auth/login/2fa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tempToken, code: twoFactorCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMessage(data.error || "Invalid 2FA code.");
+        setAuthStep("two_factor");
+        return;
       }
-    } catch (err: any) {
-      console.warn("Google SSO popup failed or was blocked (common in iframe/sandboxed contexts):", err);
-      setAuthStep("google_unavailable");
+      await completeLogin(data.token, data.user);
+    } catch (err) {
+      console.error("2FA verification failed:", err);
+      setErrorMessage("Could not reach the server. Please try again.");
+      setAuthStep("two_factor");
     }
   };
 
-  // ACTUAL FACEBOOK POPUP LOGIN HANDLER
+  // GOOGLE — not yet wired to the real backend. /api/auth/google expects a verified
+  // Google ID token via @react-oauth/google's `credential` field, but this component
+  // still uses a separate Firebase popup flow (lib/googleDrive.ts) that returns Firebase
+  // user info, not a Google ID token compatible with that endpoint. Swapping the actual
+  // sign-in library is a distinct follow-up piece of work — until then, Google sign-in is
+  // disabled here rather than left as an unverified client-side "success".
+  const handleGoogleLogin = () => {
+    setAuthStep("google_unavailable");
+  };
+
+  // FACEBOOK — fully wired. Keeps the existing popup flow to obtain a Facebook access
+  // token, but now POSTs it to /api/auth/facebook for real server-side verification via
+  // the Graph API + JWT issuance, instead of the client fetching the Graph API itself and
+  // self-declaring the result authenticated.
   const handleFacebookLogin = () => {
     setFbError("");
     if (!fbAppId.trim()) {
@@ -305,10 +226,10 @@ export function AuthGate({
   // Listen for the postMessage event sent from the loaded popup callback page
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      // Validate origin is from the same origin, our Cloud Run domain, or our duckdns.org subdomain.
-      // IMPORTANT: this must be an exact/suffix match on the parsed hostname, not a substring
-      // check on the raw origin string — origin.includes("duckdns.org") would also match an
-      // attacker-controlled domain like "https://duckdns.org.attacker.com".
+      // Validate origin is from the same origin, our Cloud Run domain, or our duckdns.org
+      // subdomain. Exact/suffix match on the parsed hostname, not a substring check on the
+      // raw origin string (origin.includes("duckdns.org") would also match an
+      // attacker-controlled domain like "https://duckdns.org.attacker.com").
       const origin = event.origin;
       let isAllowedOrigin = origin === window.location.origin;
       if (!isAllowedOrigin) {
@@ -330,29 +251,25 @@ export function AuthGate({
         const accessToken = params.get("access_token");
 
         if (accessToken) {
-          setLoadingText("Fetching Facebook profile info...");
+          setLoadingText("Verifying Facebook login...");
           setAuthStep("loading");
 
           try {
-            // Live actual fetch to Facebook's Graph API
-            const response = await fetch(`https://graph.facebook.com/v18.0/me?fields=id,name,email,picture.type(large)&access_token=${accessToken}`);
-            if (!response.ok) {
-              throw new Error("Facebook API error or unauthorized token");
+            const res = await fetch("/api/auth/facebook", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ accessToken }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              setFbError(data.error || "Facebook login failed.");
+              setAuthStep("login");
+              return;
             }
-            const fbUser = await response.json();
-            
-            const authenticatedUser: AuthenticatedUser = {
-              id: `fb_${fbUser.id}`,
-              name: fbUser.name || "Facebook User",
-              email: fbUser.email || `${fbUser.id}@facebook.user.com`,
-              provider: "facebook",
-              photoUrl: fbUser.picture?.data?.url || undefined
-            };
-
-            handleUserAuthenticated(authenticatedUser);
+            await completeLogin(data.token, data.user);
           } catch (error: any) {
-            console.error("Facebook profile fetch failed:", error);
-            setFbError(error.message || "Failed to fetch Facebook profile.");
+            console.error("Facebook login failed:", error);
+            setFbError("Failed to verify Facebook login.");
             setAuthStep("login");
           }
         } else {
@@ -473,6 +390,24 @@ export function AuthGate({
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="e.g. Elizabeth Bennet"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {isRegistering && (
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      Company / Business Name
+                    </label>
+                    <div className="relative">
+                      <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                      <input
+                        type="text"
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        placeholder="e.g. Starlight Industries"
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm placeholder:text-slate-600"
                       />
                     </div>
@@ -612,173 +547,49 @@ export function AuthGate({
           </div>
         )}
 
-        {/* TENANT / BUSINESS SELECTOR */}
-        {authStep === "business_select" && tempUser && (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest font-mono">Logged in as {tempUser.email}</p>
-              <h2 className="text-lg font-bold text-white">Select Your Business Division</h2>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                To guarantee zero overlap of critical customer information, payroll data, and operations, select or register your distinct workspace.
-              </p>
-            </div>
-
-            <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-              {(() => {
-                // Filter businesses owned by user or system (pre-seeded ones for excellent sandbox play)
-                const filtered = businesses.filter((biz) => biz.ownerEmail === tempUser.email || biz.ownerEmail === "system");
-                if (filtered.length === 0) {
-                  return (
-                    <div className="text-center py-6 px-4 border border-dashed border-slate-850 rounded-2xl bg-slate-900/30">
-                      <p className="text-xs font-bold text-slate-400">No registered divisions found</p>
-                      <p className="text-[10px] text-slate-500 mt-1">Please register a new division below to get started.</p>
-                    </div>
-                  );
-                }
-                return filtered.map((biz) => (
-                  <button
-                    type="button"
-                    key={biz.id}
-                    onClick={() => handleSelectBusiness(biz)}
-                    className="w-full flex items-center justify-between p-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 rounded-2xl text-left transition-all group active:scale-[0.99] cursor-pointer"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 bg-slate-850 text-slate-300 rounded-lg flex items-center justify-center border border-slate-750 group-hover:bg-indigo-950 group-hover:text-indigo-400 transition-colors">
-                        <Building2 className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-white">{biz.name}</p>
-                        <p className="text-[10px] text-slate-400 tracking-wider">Business division</p>
-                      </div>
-                    </div>
-                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 transition-transform group-hover:translate-x-1" />
-                  </button>
-                ));
-              })()}
-            </div>
-
-            <div className="pt-2">
-              {(() => {
-                const userBusinesses = businesses.filter((biz) => biz.ownerEmail === tempUser.email);
-                const limitReached = userBusinesses.length >= 1;
-                
-                if (limitReached) {
-                  return (
-                    <div className="space-y-3">
-                      <div className="p-3 bg-indigo-950/40 border border-indigo-900/50 rounded-xl text-xs text-slate-300 flex items-start gap-2.5">
-                        <AlertCircle className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-semibold text-white text-left">Subscription Limit Reached</p>
-                          <p className="text-[10.5px] text-slate-400 text-left mt-0.5 leading-relaxed">
-                            Your current subscription package allows registering exactly **1 business division**. To add more workspaces, please contact sales to upgrade.
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 text-slate-500 border border-slate-750/50 rounded-xl font-bold text-sm cursor-not-allowed opacity-60"
-                      >
-                        <Lock className="w-4 h-4" />
-                        Register New Division (Limit Reached)
-                      </button>
-                    </div>
-                  );
-                }
-
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setAuthStep("create_business")}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer text-sm"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    Register New Custom Business
-                  </button>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-
-        {/* REGISTER NEW BUSINESS */}
-        {authStep === "create_business" && tempUser && (
-          <form onSubmit={handleCreateBusiness} className="space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-lg font-bold text-white">Create Isolated Tenant</h2>
+        {/* TWO-FACTOR VERIFICATION */}
+        {authStep === "two_factor" && (
+          <form onSubmit={handleTwoFactorSubmit} className="space-y-6">
+            <div className="space-y-2 text-center">
+              <div className="w-12 h-12 bg-indigo-950/60 border border-indigo-900/50 rounded-2xl flex items-center justify-center mx-auto">
+                <KeyRound className="w-5 h-5 text-indigo-400" />
+              </div>
+              <h2 className="text-lg font-bold text-white">Two-Factor Verification</h2>
               <p className="text-xs text-slate-500">
-                Setup a secure, unique database partition for your business structure.
+                Enter the 6-digit code from your authenticator app.
               </p>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                  Business / Corporation Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newBusinessName}
-                  onChange={(e) => setNewBusinessName(e.target.value)}
-                  placeholder="e.g. Starlight Industries"
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-slate-850 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                  Billing Email
-                </label>
-                <input
-                  type="email"
-                  value={newBusinessEmail}
-                  onChange={(e) => setNewBusinessEmail(e.target.value)}
-                  placeholder="e.g. finance@starlight.com"
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-slate-850 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                  Phone Number
-                </label>
-                <input
-                  type="text"
-                  value={newBusinessPhone}
-                  onChange={(e) => setNewBusinessPhone(e.target.value)}
-                  placeholder="e.g. +1 (555) 000-1111"
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-slate-850 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                  Business Address
-                </label>
-                <textarea
-                  value={newBusinessAddress}
-                  onChange={(e) => setNewBusinessAddress(e.target.value)}
-                  placeholder="e.g. 500 Star Road, Space City"
-                  rows={2}
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-slate-850 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-sm resize-none"
-                />
-              </div>
+            <div className="space-y-1">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Verification Code
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                required
+                value={twoFactorCode}
+                onChange={(e) => setTwoFactorCode(e.target.value)}
+                placeholder="123456"
+                maxLength={6}
+                className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-white text-center text-lg tracking-[0.4em] font-mono"
+              />
             </div>
 
-            <div className="pt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setAuthStep("business_select")}
-                className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-850 text-slate-400 rounded-xl text-sm font-bold border border-slate-800 transition-all cursor-pointer text-center"
-              >
-                Back
-              </button>
+            <div className="flex flex-col gap-3 pt-2">
               <button
                 type="submit"
-                className="flex-[2] py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all shadow-md cursor-pointer text-center"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md active:scale-[0.98] cursor-pointer"
               >
-                Create Workspace
+                Verify &amp; Continue
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthStep("login"); setTwoFactorCode(""); }}
+                className="w-full py-2.5 bg-transparent border border-slate-800 hover:bg-slate-900/50 text-slate-400 hover:text-white rounded-xl text-xs transition-all cursor-pointer font-semibold"
+              >
+                Back to Login
               </button>
             </div>
           </form>

@@ -1,7 +1,7 @@
 import React from "react";
 import { Job } from "../types";
 import { Clock, DollarSign, Calendar, History, FileText, MessageSquare, Send, User, Download, X, Package, Lock, Truck } from "lucide-react";
-import { BusinessSettings } from "./Settings";
+import { BusinessSettings } from "../types";
 import { InvoiceView } from "./InvoiceView";
 import { PaymentModal } from "./PaymentModal";
 

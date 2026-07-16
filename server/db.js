@@ -216,6 +216,8 @@ try {
   try { db.exec("ALTER TABLE jobs ADD COLUMN timeLogs TEXT"); } catch(e) {}
 
   // ─── New: accounts status, plan, stripe columns ───────────────────────────
+  try { db.exec("ALTER TABLE clients ADD COLUMN address TEXT"); } catch(e) {}
+
   try { db.exec("ALTER TABLE accounts ADD COLUMN status TEXT DEFAULT 'active'"); } catch(e) {}
   try { db.exec("ALTER TABLE accounts ADD COLUMN plan TEXT DEFAULT 'trial'"); } catch(e) {}
   try { db.exec("ALTER TABLE accounts ADD COLUMN suspendedAt TEXT"); } catch(e) {}

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Job, Employee, JobNote, JobMessage, JobLineItem, Deliverable, JobStatus, TimeLog } from "../types";
 import { apiFetch } from '../lib/api';
 import { ArrowLeft, X, FileText, CheckCircle2, Clock, DollarSign, User, Tag, Calendar, History, Building2, Image as ImageIcon, Printer, MessageSquare, Send, Timer, Play, Square, Box, Plus, Trash2, Package, Download, Truck, FolderOpen, UploadCloud, FileIcon, AlertCircle, ScrollText, Copy, ExternalLink, Sparkles } from "lucide-react";
-import { BusinessSettings } from "./Settings";
+import { BusinessSettings } from "../types";
 import { InvoiceView } from "./InvoiceView";
 
 export function JobDetailView({

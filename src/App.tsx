@@ -11,27 +11,87 @@ import { Invoices } from "./components/Invoices";
 import { Clients } from "./components/Clients";
 import { Settings } from "./components/Settings";
 import { AuthGate } from "./components/AuthGate";
+import { ClientPortal } from "./components/ClientPortal";
 import { Job, Employee, PayrollRecord, AppUser, FileItem, Client, BusinessSettings, AuthenticatedUser, Business } from "./types";
 import { generateUUID } from "./utils";
+import { apiFetch } from "./lib/api";
 
 // SECURE MULTI-TENANT WORKSPACE ROOT
 
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(() => {
-    const saved = localStorage.getItem("tickit_current_user");
-    return saved ? JSON.parse(saved) : null;
-  });
+  // Client portal link: /portal/{secureToken} or ?token={secureToken}. Renders standalone,
+  // completely bypassing login — the token itself is the credential, validated server-side.
+  const params = new URLSearchParams(window.location.search);
+  const queryToken = params.get("token");
+  const pathParts = window.location.pathname.split("/portal/");
+  const pathToken = pathParts.length > 1 ? pathParts[1] : null;
+  const portalToken = queryToken || pathToken;
 
-  const [activeBusiness, setActiveBusiness] = useState<Business | null>(() => {
-    const saved = localStorage.getItem("tickit_active_business");
-    if (saved) {
+  if (portalToken) {
+    return <ClientPortal token={portalToken} />;
+  }
+
+  const [currentUser, setCurrentUser] = useState<AuthenticatedUser | null>(null);
+  const [activeBusiness, setActiveBusiness] = useState<Business | null>(null);
+  // While we check for an existing JWT and try to restore the session, show nothing
+  // rather than flashing the login screen first.
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
+
+  // On mount, try to restore a session from a previously-stored JWT (real backend auth,
+  // replacing the old localStorage user/business bootstrapping).
+  useEffect(() => {
+    const restoreSession = async () => {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setIsRestoringSession(false);
+        return;
+      }
+
       try {
-        return JSON.parse(saved) as Business;
-      } catch (e) {}
-    }
-    return null;
-  });
+        const meRes = await apiFetch("/api/auth/me");
+        if (!meRes.ok) {
+          localStorage.removeItem("token");
+          setIsRestoringSession(false);
+          return;
+        }
+        const me = await meRes.json();
+
+        let settings: BusinessSettings = {
+          name: "My Business", address: "", email: me.email || "", phone: "",
+          logoUrl: "", paymentTerms: "Due within 30 days.", currency: "USD", taxRate: 0,
+        };
+        try {
+          const settingsRes = await apiFetch("/api/settings");
+          if (settingsRes.ok) {
+            const s = await settingsRes.json();
+            if (s && s.name) settings = s;
+          }
+        } catch { /* use defaults above */ }
+
+        setCurrentUser({
+          id: me.id,
+          name: me.name,
+          email: me.email,
+          provider: "email",
+        });
+        setActiveBusiness({
+          id: me.account_id,
+          name: settings.name,
+          ownerEmail: me.email,
+          settings,
+        });
+      } catch (err) {
+        console.error("Session restore failed:", err);
+        localStorage.removeItem("token");
+      } finally {
+        setIsRestoringSession(false);
+      }
+    };
+
+    restoreSession();
+  }, []);
+
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     return (localStorage.getItem("tickit_theme") as "light" | "dark") || "light";
@@ -77,95 +137,80 @@ export default function App() {
     taxRate: 0,
   });
 
-  // Fetch partitioned database when activeBusiness changes
+  // Load real, server-backed data (jobs/clients/employees/settings) whenever the active
+  // account changes. Payroll/users/files have no backend endpoints yet (see Phase 2 notes)
+  // and remain on localStorage, keyed by account_id.
+  const [isLoadingData, setIsLoadingData] = useState(false);
+
   useEffect(() => {
     if (!activeBusiness) return;
+    const accountId = activeBusiness.id;
 
-    const bizId = activeBusiness.id;
-
-    // Helper functions to load partition or fallback to clean defaults
     const loadPartition = <T,>(key: string, fallbackValue: T): T => {
-      const stored = localStorage.getItem(`tickit_${bizId}_${key}`);
+      const stored = localStorage.getItem(`tickit_${accountId}_${key}`);
       if (stored) {
         try {
           return JSON.parse(stored);
         } catch (e) {
-          // parse error
+          // parse error, fall through to default
         }
       }
-      
-      localStorage.setItem(`tickit_${bizId}_${key}`, JSON.stringify(fallbackValue));
+      localStorage.setItem(`tickit_${accountId}_${key}`, JSON.stringify(fallbackValue));
       return fallbackValue;
     };
 
-    // Load jobs
-    const loadedJobs = loadPartition<Job[]>("jobs", []);
-    setJobs(loadedJobs);
+    const loadServerData = async () => {
+      setIsLoadingData(true);
+      try {
+        const [jobsRes, clientsRes, employeesRes, settingsRes] = await Promise.all([
+          apiFetch("/api/jobs"),
+          apiFetch("/api/clients"),
+          apiFetch("/api/employees"),
+          apiFetch("/api/settings"),
+        ]);
 
-    // Load clients
-    const loadedClients = loadPartition<Client[]>("clients", []);
-    setClients(loadedClients);
+        if (jobsRes.ok) setJobs(await jobsRes.json());
+        if (clientsRes.ok) setClients(await clientsRes.json());
+        if (employeesRes.ok) {
+          const serverEmployees = await employeesRes.json();
+          // Employees have no backend CRUD yet — merge server-known employees with
+          // any purely-local payroll bookkeeping (timeCards) already stored locally.
+          const localEmployees = loadPartition<Employee[]>("employees", []);
+          const merged = serverEmployees.length > 0 ? serverEmployees : localEmployees;
+          setEmployees(merged);
+        }
+        if (settingsRes.ok) {
+          const s = await settingsRes.json();
+          if (s && s.name) setSettings(s);
+        }
+      } catch (err) {
+        console.error("Failed to load account data from server:", err);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
 
-    // Load employees
-    const loadedEmployees = loadPartition<Employee[]>("employees", []);
-    setEmployees(loadedEmployees);
+    loadServerData();
 
-    // Load files
-    const loadedFiles = loadPartition<FileItem[]>("files", []);
-    setFiles(loadedFiles);
+    // Payroll/users/files: still local-only until a real backend exists for them.
+    setPayrollRecords(loadPartition<PayrollRecord[]>("payroll", []));
 
-    // Load payroll
-    const loadedPayroll = loadPartition<PayrollRecord[]>("payroll", []);
-    setPayrollRecords(loadedPayroll);
-
-    // Load users (Add current tenant administrator as the first user if none exist)
     const defaultUsers: AppUser[] = currentUser ? [
       {
         id: currentUser.id,
         name: currentUser.name,
         email: currentUser.email,
         role: "Admin",
-        permissions: ["dashboard", "jobs", "new-request", "payroll", "invoices", "users", "files"]
+        permissions: ["dashboard", "jobs", "new-request", "payroll", "invoices", "users", "files", "clients"]
       }
     ] : [];
-    const loadedUsers = loadPartition<AppUser[]>("users", defaultUsers);
-    setUsers(loadedUsers);
-
-    // Load Settings
-    const storedSettings = localStorage.getItem(`tickit_${bizId}_settings`);
-    if (storedSettings) {
-      try {
-        const parsedSettings = JSON.parse(storedSettings) as BusinessSettings;
-        setSettings(parsedSettings);
-      } catch (e) {}
-    } else {
-      localStorage.setItem(`tickit_${bizId}_settings`, JSON.stringify(activeBusiness.settings));
-      setSettings(activeBusiness.settings);
-    }
-
+    setUsers(loadPartition<AppUser[]>("users", defaultUsers));
+    setFiles(loadPartition<FileItem[]>("files", []));
   }, [activeBusiness]);
 
-  // Synchronize partitioned database on state changes
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_jobs`, JSON.stringify(jobs));
-  }, [jobs, activeBusiness]);
-
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_clients`, JSON.stringify(clients));
-  }, [clients, activeBusiness]);
-
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_employees`, JSON.stringify(employees));
-  }, [employees, activeBusiness]);
-
-  useEffect(() => {
-    if (!activeBusiness) return;
-    localStorage.setItem(`tickit_${activeBusiness.id}_files`, JSON.stringify(files));
-  }, [files, activeBusiness]);
-
+  // Payroll/users/files remain client-side for now — keep persisting those to
+  // localStorage. Jobs/clients/employees/settings are server-backed and persisted via
+  // their own API calls at the point of mutation instead (see handlers below).
   useEffect(() => {
     if (!activeBusiness) return;
     localStorage.setItem(`tickit_${activeBusiness.id}_payroll`, JSON.stringify(payrollRecords));
@@ -176,49 +221,64 @@ export default function App() {
     localStorage.setItem(`tickit_${activeBusiness.id}_users`, JSON.stringify(users));
   }, [users, activeBusiness]);
 
-  const handleUpdateSettings = (newSettings: BusinessSettings) => {
-    setSettings(newSettings);
-    if (activeBusiness) {
-      localStorage.setItem(`tickit_${activeBusiness.id}_settings`, JSON.stringify(newSettings));
-      
-      // Update business name inside activeBusiness representation too
-      const updatedBiz = { ...activeBusiness, name: newSettings.name, settings: newSettings };
-      setActiveBusiness(updatedBiz);
-      localStorage.setItem("tickit_active_business", JSON.stringify(updatedBiz));
+  useEffect(() => {
+    if (!activeBusiness) return;
+    localStorage.setItem(`tickit_${activeBusiness.id}_files`, JSON.stringify(files));
+  }, [files, activeBusiness]);
 
-      // Update registered businesses list in localStorage
-      const storedBizs = localStorage.getItem("tickit_registered_businesses");
-      if (storedBizs) {
-        try {
-          const parsed = JSON.parse(storedBizs) as Business[];
-          const updatedList = parsed.map(b => b.id === activeBusiness.id ? updatedBiz : b);
-          localStorage.setItem("tickit_registered_businesses", JSON.stringify(updatedList));
-        } catch (e) {}
-      }
+  useEffect(() => {
+    if (!activeBusiness) return;
+    localStorage.setItem(`tickit_${activeBusiness.id}_employees`, JSON.stringify(employees));
+  }, [employees, activeBusiness]);
+
+
+  const handleUpdateSettings = async (newSettings: BusinessSettings) => {
+    setSettings(newSettings);
+    try {
+      const res = await apiFetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newSettings),
+      });
+      if (!res.ok) console.error("Failed to save settings to server");
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+    }
+
+    if (activeBusiness) {
+      setActiveBusiness({ ...activeBusiness, name: newSettings.name, settings: newSettings });
     }
   };
 
   const handleAuthComplete = (user: AuthenticatedUser, business: Business) => {
     setCurrentUser(user);
     setActiveBusiness(business);
-    localStorage.setItem("tickit_current_user", JSON.stringify(user));
-    localStorage.setItem("tickit_active_business", JSON.stringify(business));
     setActiveTab("dashboard");
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     setActiveBusiness(null);
-    localStorage.removeItem("tickit_current_user");
-    localStorage.removeItem("tickit_active_business");
+    localStorage.removeItem("token");
   };
 
+  // The real backend ties exactly one account to each login — there is no longer a
+  // concept of switching between multiple businesses under one user, so this now just
+  // logs out and returns to the login screen.
   const handleSwitchBusiness = () => {
-    setActiveBusiness(null);
-    localStorage.removeItem("tickit_active_business");
+    handleLogout();
   };
 
-  // If session is unauthenticated or active business is not selected, direct to security gate
+  // Still restoring a session from a stored JWT — avoid flashing the login screen.
+  if (isRestoringSession) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <RefreshCw className="w-6 h-6 text-indigo-500 animate-spin" />
+      </div>
+    );
+  }
+
+  // If session is unauthenticated, direct to security gate
   if (!currentUser || !activeBusiness) {
     return <AuthGate onAuthComplete={handleAuthComplete} />;
   }
@@ -379,7 +439,7 @@ export default function App() {
               <JobRequestForm
                 employees={employees}
                 clients={clients}
-                onSave={(jobData) => {
+                onSave={async (jobData) => {
                   const newJob: Job = {
                     ...jobData,
                     id: generateUUID(),
@@ -393,7 +453,23 @@ export default function App() {
                       }
                     ]
                   };
-                  setJobs([newJob, ...jobs]);
+                  try {
+                    const res = await apiFetch("/api/jobs", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(newJob),
+                    });
+                    if (res.ok) {
+                      const serverJob = await res.json();
+                      setJobs([serverJob, ...jobs]);
+                    } else {
+                      console.error("Failed to save job to server, keeping local copy only");
+                      setJobs([newJob, ...jobs]);
+                    }
+                  } catch (err) {
+                    console.error("Failed to save job to server:", err);
+                    setJobs([newJob, ...jobs]);
+                  }
                   setActiveTab("jobs");
                 }}
               />
@@ -415,7 +491,7 @@ export default function App() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={(e) => {
+            <form onSubmit={async (e) => {
               e.preventDefault();
               const target = e.currentTarget;
               const name = (target.elements.namedItem("clientName") as HTMLInputElement).value;
@@ -423,8 +499,8 @@ export default function App() {
               const email = (target.elements.namedItem("clientEmail") as HTMLInputElement).value;
               const phone = (target.elements.namedItem("clientPhone") as HTMLInputElement).value;
               const address = (target.elements.namedItem("clientAddress") as HTMLInputElement).value;
-              
-              const newClient = {
+
+              const localClient: Client = {
                 id: `c_${generateUUID().slice(0, 8)}`,
                 name,
                 company: company || "Individual",
@@ -433,8 +509,27 @@ export default function App() {
                 address,
                 createdAt: new Date().toISOString()
               };
-              
-              setClients([newClient, ...clients]);
+
+              try {
+                const res = await apiFetch("/api/clients", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ name, company: company || "Individual", email, phone, address }),
+                });
+                if (res.ok) {
+                  const serverClient = await res.json();
+                  setClients([serverClient, ...clients]);
+                } else {
+                  const errData = await res.json().catch(() => ({}));
+                  alert(`Failed to add client: ${errData.error || "Unknown error"}`);
+                  setIsNewClientModalOpen(false);
+                  return;
+                }
+              } catch (err) {
+                console.error("Failed to save client to server:", err);
+                setClients([localClient, ...clients]);
+              }
+
               setIsNewClientModalOpen(false);
               alert(`Successfully added new client: ${name} (${company || "Individual"})`);
             }} className="p-6 space-y-4">
