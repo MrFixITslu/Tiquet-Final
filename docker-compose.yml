@@ -5,18 +5,33 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: production
     container_name: v79-tiquet-manager
-    ports:
-      - "4010:4010"
+    restart: unless-stopped
+    env_file: .env
     environment:
+      - NODE_ENV=production
+      - PORT=4010
       # Automatically detected by standard Nginx reverse proxy containers (e.g. jwilder/nginx-proxy, Nginx Proxy Manager)
       - VIRTUAL_HOST=tiquet.v79sl.duckdns.org
       - VIRTUAL_PORT=4010
       - LETSENCRYPT_HOST=tiquet.v79sl.duckdns.org
-    restart: unless-stopped
+    ports:
+      - "4010:4010"
+    volumes:
+      - tiquet_data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     # Uncomment and replace the network name if you want to attach to an existing proxy network
     # networks:
     #   - proxy-network
+
+volumes:
+  tiquet_data:
 
 # networks:
 #   proxy-network:
