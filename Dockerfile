@@ -13,7 +13,11 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN apk add --no-cache python3 make g++
 
 COPY package.json package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# Using npm install rather than npm ci: ci requires package-lock.json to match
+# package.json byte-for-byte, which is brittle when package.json gets hand-edited
+# between builds. install reconciles the lock file automatically instead of
+# hard-failing.
+RUN npm install
 
 COPY . .
 RUN npm run build
@@ -37,9 +41,10 @@ COPY package.json package-lock.json* ./
 
 # Install production deps only. better-sqlite3 still needs build tools to compile
 # if no prebuilt binary matches — install them, build, then remove to keep the
-# final image slim.
+# final image slim. Using npm install (not ci) for the same reason as the builder
+# stage — tolerant of the lock file being slightly behind package.json.
 RUN apk add --no-cache python3 make g++ && \
-    (if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi) && \
+    npm install --omit=dev && \
     apk del python3 make g++ && \
     rm -rf /root/.npm /root/.node-gyp
 
