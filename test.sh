@@ -9,7 +9,7 @@ SERVER_PID=$!
 # Wait for Vite and server to be ready
 echo "Waiting for services to become ready..."
 for i in {1..30}; do
-  if grep -q "5174" .test-server.log && grep -q "Backend server running" .test-server.log; then
+  if (grep -q "5173\|5174\|Local:" .test-server.log) && grep -q "Backend server running" .test-server.log; then
     break
   fi
   sleep 1
