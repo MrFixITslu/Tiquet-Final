@@ -11,7 +11,8 @@ import {
   Contact,
   Building2,
   LogOut,
-  ArrowLeftRight
+  ArrowLeftRight,
+  X
 } from "lucide-react";
 
 export function Sidebar({
@@ -20,15 +21,28 @@ export function Sidebar({
   businessName,
   onSwitchBusiness,
   onLogout,
+  isOpen,
+  onClose,
 }: {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   businessName: string;
   onSwitchBusiness: () => void;
   onLogout: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }) {
   return (
-    <aside className="w-64 bg-slate-900 text-slate-100 flex flex-col h-screen shrink-0">
+    <>
+      {/* Mobile Overlay */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 z-40 md:hidden" 
+          onClick={onClose}
+        />
+      )}
+      
+      <aside className={`fixed md:static inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-100 flex flex-col h-screen shrink-0 transition-transform duration-300 md:transform-none ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="p-6 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
@@ -124,6 +138,7 @@ export function Sidebar({
         </button>
       </div>
     </aside>
+    </>
   );
 }
 

@@ -56,9 +56,9 @@ RUN mkdir -p data && chown -R appuser:appgroup /app
 
 USER appuser
 
-EXPOSE 4010
+EXPOSE 3020
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD wget -qO- http://localhost:4010/health || exit 1
+    CMD wget -qO- http://localhost:3020/health || exit 1
 
 CMD ["node", "server/index.js"]
