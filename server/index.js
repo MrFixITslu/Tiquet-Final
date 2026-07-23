@@ -1366,6 +1366,21 @@ if (isProduction) {
     });
 }
 
+// ── Global error handler ──────────────────────────────────────────────────
+// Without this, errors passed via next(err) — e.g. the cors() middleware's
+// callback(new Error('Not allowed by CORS')) — fall through to Express's
+// default error handler, which returns a bare 500 with no useful body. That
+// masks real CORS/config problems as generic server errors. Catch them here
+// and respond with the correct status code instead.
+app.use((err, req, res, next) => {
+    if (err && err.message === 'Not allowed by CORS') {
+        logger.warn(`CORS rejection for ${req.method} ${req.originalUrl} — Origin: ${req.headers.origin}`);
+        return res.status(403).json({ error: 'Not allowed by CORS' });
+    }
+    logger.error(`Unhandled error on ${req.method} ${req.originalUrl}: ${err && err.stack ? err.stack : err}`);
+    res.status(500).json({ error: isProduction ? 'Internal Server Error' : (err && err.message) });
+});
+
 // Purge logs older than 30 days on startup
 logger.rotateLogs(30);
 
