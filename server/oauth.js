@@ -28,7 +28,7 @@ import { v4 as uuidv4 } from 'uuid';
 import db            from './db.js';
 import { logger }    from './logger.js';
 
-const JWT_SECRET     = process.env.JWT_SECRET;
+const JWT_SECRET     = process.env.JWT_SECRET || 'dev_jwt_secret_v79_tickit';
 const GOOGLE_ID      = process.env.GOOGLE_CLIENT_ID;
 const APPLE_ID       = process.env.APPLE_CLIENT_ID;
 const FACEBOOK_ID    = process.env.FACEBOOK_APP_ID;

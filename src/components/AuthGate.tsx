@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { 
   Briefcase, 
   Check, 
@@ -10,8 +10,6 @@ import {
   Eye, 
   EyeOff, 
   AlertCircle, 
-  Facebook,
-  Chrome,
   KeyRound
 } from "lucide-react";
 import { AuthenticatedUser, Business } from "../types";
@@ -22,12 +20,7 @@ export function AuthGate({
 }: {
   onAuthComplete: (user: AuthenticatedUser, activeBusiness: Business) => void;
 }) {
-  // NOTE ON ARCHITECTURE: the real backend ties exactly one account to each login
-  // (created at registration via companyName) — there is no client-side "business
-  // switching" concept anymore. The business_select / create_business steps that used
-  // to live here were a purely client-side fiction on top of localStorage and have been
-  // removed; completeLogin() below builds the Business object straight from the server.
-  const [authStep, setAuthStep] = useState<"login" | "loading" | "google_unavailable" | "two_factor">("login");
+  const [authStep, setAuthStep] = useState<"login" | "loading" | "two_factor">("login");
   const [loadingText, setLoadingText] = useState("");
 
   // Email Auth state
@@ -43,10 +36,6 @@ export function AuthGate({
   // 2FA state (server supports TOTP 2FA on login — see /api/auth/login/2fa)
   const [tempToken, setTempToken] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
-
-  // Facebook Auth State retrieved from environment
-  const fbAppId = (import.meta as any).env.VITE_FACEBOOK_APP_ID || "";
-  const [fbError, setFbError] = useState("");
 
   // Stores the JWT and hands off to the parent with a real AuthenticatedUser + Business
   // built from the server's response, instead of anything read from localStorage.
@@ -188,101 +177,6 @@ export function AuthGate({
     }
   };
 
-  // GOOGLE — not yet wired to the real backend. /api/auth/google expects a verified
-  // Google ID token via @react-oauth/google's `credential` field, but this component
-  // still uses a separate Firebase popup flow (lib/googleDrive.ts) that returns Firebase
-  // user info, not a Google ID token compatible with that endpoint. Swapping the actual
-  // sign-in library is a distinct follow-up piece of work — until then, Google sign-in is
-  // disabled here rather than left as an unverified client-side "success".
-  const handleGoogleLogin = () => {
-    setAuthStep("google_unavailable");
-  };
-
-  // FACEBOOK — fully wired. Keeps the existing popup flow to obtain a Facebook access
-  // token, but now POSTs it to /api/auth/facebook for real server-side verification via
-  // the Graph API + JWT issuance, instead of the client fetching the Graph API itself and
-  // self-declaring the result authenticated.
-  const handleFacebookLogin = () => {
-    setFbError("");
-    if (!fbAppId.trim()) {
-      setFbError("Facebook App ID is not configured. Please define VITE_FACEBOOK_APP_ID in your environment variables to enable Facebook login.");
-      return;
-    }
-
-    const redirectUri = `${window.location.origin}/`;
-    const fbOAuthUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${fbAppId.trim()}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=public_profile,email`;
-
-    const authWindow = window.open(
-      fbOAuthUrl,
-      "facebook_oauth_popup",
-      "width=650,height=600,status=no,resizable=yes,scrollbars=yes"
-    );
-
-    if (!authWindow) {
-      setFbError("Popup was blocked by your browser. Please allow popups to sign in with Facebook.");
-    }
-  };
-
-  // Listen for the postMessage event sent from the loaded popup callback page
-  useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      // Validate origin is from the same origin, our Cloud Run domain, or our duckdns.org
-      // subdomain. Exact/suffix match on the parsed hostname, not a substring check on the
-      // raw origin string (origin.includes("duckdns.org") would also match an
-      // attacker-controlled domain like "https://duckdns.org.attacker.com").
-      const origin = event.origin;
-      let isAllowedOrigin = origin === window.location.origin;
-      if (!isAllowedOrigin) {
-        try {
-          const host = new URL(origin).hostname;
-          isAllowedOrigin = host.endsWith(".run.app") || host === "duckdns.org" || host.endsWith(".duckdns.org");
-        } catch {
-          isAllowedOrigin = false;
-        }
-      }
-
-      if (!isAllowedOrigin) {
-        return;
-      }
-
-      if (event.data?.type === "OAUTH_AUTH_SUCCESS") {
-        const hash = event.data.hash || "";
-        const params = new URLSearchParams(hash.replace("#", ""));
-        const accessToken = params.get("access_token");
-
-        if (accessToken) {
-          setLoadingText("Verifying Facebook login...");
-          setAuthStep("loading");
-
-          try {
-            const res = await fetch("/api/auth/facebook", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ accessToken }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-              setFbError(data.error || "Facebook login failed.");
-              setAuthStep("login");
-              return;
-            }
-            await completeLogin(data.token, data.user);
-          } catch (error: any) {
-            console.error("Facebook login failed:", error);
-            setFbError("Failed to verify Facebook login.");
-            setAuthStep("login");
-          }
-        } else {
-          setFbError("Facebook login failed: no access token returned in redirect.");
-          setAuthStep("login");
-        }
-      }
-    };
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [fbAppId]);
-
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       {/* Background radial highlight */}
@@ -305,56 +199,11 @@ export function AuthGate({
         {/* LOGIN CHANNELS */}
         {authStep === "login" && (
           <div className="space-y-6">
-            {/* SOCIAL SSO QUICK ACTIONS */}
-            <div className="space-y-3">
-              <div className="text-center space-y-1 mb-2">
-                <h3 className="text-base font-bold text-slate-200">
-                  Login
-                </h3>
-              </div>
-
-              {/* Google Button */}
-              <button
-                type="button"
-                onClick={handleGoogleLogin}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white hover:bg-slate-50 text-slate-900 rounded-xl font-bold transition-all shadow-md hover:shadow-indigo-500/10 active:scale-[0.99] cursor-pointer text-sm border border-slate-200"
-                id="sso-google-btn"
-              >
-                <Chrome className="w-5 h-5 text-indigo-600" />
-                Sign In with Google Account
-              </button>
-
-              {/* Facebook Button */}
-              <button
-                type="button"
-                onClick={handleFacebookLogin}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-[#1877F2] hover:bg-[#166FE5] text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.99] cursor-pointer text-sm"
-                id="sso-facebook-btn"
-              >
-                <Facebook className="w-5 h-5 fill-current" />
-                Sign In with Facebook Profile
-              </button>
-
-              {fbError && (
-                <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-xl flex items-start gap-2.5 text-xs text-red-400">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{fbError}</span>
-                </div>
-              )}
-            </div>
-
-            {/* SEPARATOR */}
-            <div className="relative flex py-2 items-center">
-              <div className="flex-grow border-t border-slate-800"></div>
-              <span className="flex-shrink mx-4 text-[10px] text-slate-500 font-bold uppercase tracking-wider">or continue with email</span>
-              <div className="flex-grow border-t border-slate-800"></div>
-            </div>
-
             {/* EMAIL LOGIN & REGISTRATION FORM */}
             <form onSubmit={handleEmailAuth} className="space-y-4">
               <div className="text-center space-y-1">
-                <h3 className="text-sm font-semibold text-slate-300">
-                  {isRegistering ? "Create a Secure Tenant Profile" : "Email & Password Access"}
+                <h3 className="text-base font-bold text-slate-200">
+                  {isRegistering ? "Create a Secure Tenant Profile" : "Email & Password Sign In"}
                 </h3>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
                   {isRegistering 
@@ -486,45 +335,6 @@ export function AuthGate({
             <p className="text-[10px] text-slate-600 text-center leading-normal">
               Secure multi-tenant data structures restrict cross-organizational data leakage automatically.
             </p>
-          </div>
-        )}
-
-        {/* GOOGLE SIGN-IN UNAVAILABLE — informational only, no unverified login path */}
-        {authStep === "google_unavailable" && (
-          <div className="space-y-6">
-            <div className="space-y-2 text-left">
-              <div className="p-3 bg-amber-950/40 border border-amber-900/50 rounded-xl text-xs text-slate-300 flex items-start gap-2.5">
-                <AlertCircle className="w-4.5 h-4.5 text-amber-400 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-white">Google Sign-In Unavailable</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                    The Google sign-in popup could not complete — it may have been blocked by
-                    your browser or by iframe restrictions. For your security, we can't offer
-                    an unverified email-only login as a substitute. Please allow popups and try
-                    again, or sign in with your email and password below.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleGoogleLogin}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
-              >
-                <Chrome className="w-4 h-4" />
-                Try Google Sign-In Again
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAuthStep("login")}
-                className="w-full py-2.5 bg-transparent border border-slate-800 hover:bg-slate-900/50 text-slate-400 hover:text-white rounded-xl text-xs transition-all cursor-pointer font-semibold"
-              >
-                Use Email &amp; Password Instead
-              </button>
-            </div>
           </div>
         )}
 

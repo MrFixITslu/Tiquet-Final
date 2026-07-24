@@ -35,15 +35,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 const isProduction = process.env.NODE_ENV === "production";
+const PORT = isProduction ? (process.env.PORT || 3040) : 3001;
 
 registerHealthCheck(app);
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const SA_JWT_SECRET = process.env.SUPER_ADMIN_JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret_v79_tickit';
+const SA_JWT_SECRET = process.env.SUPER_ADMIN_JWT_SECRET || 'dev_sa_jwt_secret_v79_tickit';
 
-if (isProduction && (!JWT_SECRET || !SA_JWT_SECRET)) {
+if (isProduction && (!process.env.JWT_SECRET || !process.env.SUPER_ADMIN_JWT_SECRET)) {
     console.error("FATAL: JWT_SECRET or SUPER_ADMIN_JWT_SECRET not set in production.");
     process.exit(1);
 }
@@ -100,7 +100,7 @@ app.use(compression());
 // Lockdown CORS to allowlist in production
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-    : ['http://localhost:5174', 'http://127.0.0.1:5174'];
+    : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5174', 'http://127.0.0.1:5174'];
 
 app.use(cors({
     origin: (origin, callback) => {

@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"vite --port=5174 --host=0.0.0.0\"",
+    "dev": "concurrently \"npm run server\" \"vite --port=3000 --host=0.0.0.0\"",
     "server": "node server/index.js",
     "start": "NODE_ENV=production node server/index.js",
     "start:prod": "pm2 start ecosystem.config.cjs --env production",

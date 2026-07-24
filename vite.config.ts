@@ -25,6 +25,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': { target: 'http://127.0.0.1:3001', ws: true },
         '/ws': { target: 'http://127.0.0.1:3001', ws: true },
+        '/health': { target: 'http://127.0.0.1:3001' },
       },
     },
     build: {

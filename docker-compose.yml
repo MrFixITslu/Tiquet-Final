@@ -9,17 +9,17 @@ services:
     env_file: .env
     environment:
       - NODE_ENV=production
-      - PORT=3020
+      - PORT=3040
       # Automatically detected by standard Nginx reverse proxy containers (e.g. jwilder/nginx-proxy, Nginx Proxy Manager)
       - VIRTUAL_HOST=tiquet.v79sl.duckdns.org
-      - VIRTUAL_PORT=3020
+      - VIRTUAL_PORT=3040
       - LETSENCRYPT_HOST=tiquet.v79sl.duckdns.org
     ports:
-      - "3020:3020"
+      - "3040:3040"
     volumes:
       - tiquet_data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3020/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3040/health"]
       interval: 30s
       timeout: 10s
       retries: 3
