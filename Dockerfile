@@ -56,9 +56,14 @@ RUN mkdir -p data && chown -R appuser:appgroup /app
 
 USER appuser
 
-EXPOSE 3020
+# Matches server/index.js's own production default (process.env.PORT || 3040).
+# Uses the shell form so it re-reads PORT at container runtime rather than
+# baking in a stale value at build time — if docker-compose.yml ever sets a
+# different PORT, the healthcheck follows it automatically instead of silently
+# probing the wrong port and reporting "unhealthy" forever.
+EXPOSE 3040
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD wget -qO- http://localhost:3020/health || exit 1
+    CMD wget -qO- "http://localhost:${PORT:-3040}/health" || exit 1
 
 CMD ["node", "server/index.js"]
