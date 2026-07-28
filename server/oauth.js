@@ -33,7 +33,7 @@ const GOOGLE_ID      = process.env.GOOGLE_CLIENT_ID;
 const APPLE_ID       = process.env.APPLE_CLIENT_ID;
 const FACEBOOK_ID    = process.env.FACEBOOK_APP_ID;
 const FACEBOOK_SECRET= process.env.FACEBOOK_APP_SECRET;
-const APP_BASE_URL   = (process.env.APP_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
+const APP_BASE_URL   = (process.env.APP_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 const googleClient = GOOGLE_ID ? new OAuth2Client(GOOGLE_ID) : null;
 

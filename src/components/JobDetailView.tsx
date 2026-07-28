@@ -164,6 +164,32 @@ export function JobDetailView({
     return () => clearInterval(interval);
   }, [isTimerRunning]);
 
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+
+  const handleDownloadFile = async (f: { url: string; name: string; filename: string }) => {
+    setDownloadingFile(f.filename);
+    try {
+      // Files are served through an authenticated route (not a static path),
+      // so a plain <a href> can't include the Bearer token — fetch the bytes
+      // ourselves and trigger the download from a blob URL instead.
+      const res = await apiFetch(f.url);
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = f.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      console.error('Download file error:', e);
+    } finally {
+      setDownloadingFile(null);
+    }
+  };
+
   const handleDeleteFile = async (filename: string) => {
     if (!confirm(`Delete ${filename.replace(/^\d+-/, '')}?`)) return;
     try {
@@ -976,16 +1002,16 @@ export function JobDetailView({
                           <p className="text-xs text-slate-400">{formatFileSize(f.size)} · {new Date(f.uploadedAt).toLocaleDateString()}</p>
                         </div>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <a
-                            href={f.url}
-                            download={f.name}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          <button
+                            onClick={() => handleDownloadFile(f)}
+                            disabled={downloadingFile === f.filename}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
                             title="Download file"
                           >
-                            <Download className="w-4 h-4" />
-                          </a>
+                            {downloadingFile === f.filename
+                              ? <span className="block w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                              : <Download className="w-4 h-4" />}
+                          </button>
                           <button
                             title="Delete file"
                             onClick={() => handleDeleteFile(f.filename)}

@@ -17,6 +17,7 @@ import compression from "compression";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import crypto from "crypto";
 import multer from "multer";
 import { registerStripeRoutes } from "./stripe.js";
 import { registerHealthCheck } from "./healthcheck.js";
@@ -26,6 +27,7 @@ import {
     sanitizeObject, 
     isValidEmail, 
     isValidUUID, 
+    isNonEmptyString,
     secureFilePath,
     validatePassword,
     badRequest 
@@ -100,7 +102,7 @@ app.use(compression());
 // Lockdown CORS to allowlist in production
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-    : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5174', 'http://127.0.0.1:5174'];
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
 app.use(cors({
     origin: (origin, callback) => {
@@ -188,7 +190,7 @@ app.get('/api/files/:accountId/*', authenticateToken, (req, res) => {
 
     // Security: Only allow safe file types to be served
     const ext = path.extname(safePath).toLowerCase();
-    const ALLOWED_EXTS = ['.png', '.jpg', '.jpeg', '.pdf', '.docx', '.json', '.txt', '.zip'];
+    const ALLOWED_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.ppt', '.pptx', '.json', '.txt', '.zip', '.mp4', '.mov'];
     if (!ALLOWED_EXTS.includes(ext)) {
         return res.status(403).json({ error: "File type not permitted" });
     }
@@ -416,7 +418,7 @@ app.get("/api/auth/me", authenticateToken, (req, res) => {
 // 2FA Setup endpoints
 app.post("/api/auth/2fa/generate", authenticateToken, async (req, res) => {
     try {
-        const secret = speakeasy.generateSecret({ name: `Auvic (${req.user.email})` });
+        const secret = speakeasy.generateSecret({ name: `V79 Tiquet (${req.user.email})` });
         const dataUrl = await qrcode.toDataURL(secret.otpauth_url);
         
         db.prepare("UPDATE users SET twoFactorSecret = ? WHERE id = ?").run(secret.base32, req.user.id);
@@ -693,6 +695,120 @@ app.post("/api/jobs", authenticateToken, (req, res) => {
 });
 
 // Update a job
+// ---------------------------------------------------------------------
+// Public intake endpoint — used by the VISION79 website's contact form
+// (website2026) to open a job here automatically when someone clicks
+// "Send My Request". This is the only route in the app that is reachable
+// without a logged-in user, so it is deliberately locked down harder than
+// the rest of the API:
+//   - a shared secret header (X-Intake-Secret) instead of a JWT
+//   - a tight, dedicated rate limit (separate from the general apiLimiter)
+//   - strict input validation/sanitisation before anything touches the DB
+//   - the target account is fixed by server config (INTAKE_ACCOUNT_ID),
+//     never chosen by the caller, so a compromised secret can only create
+//     jobs in that one account, not read/write anything else.
+// ---------------------------------------------------------------------
+const intakeLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 20, // 20 intake submissions per hour per IP is plenty for a contact form
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please try again later or contact us directly." }
+});
+
+const requireIntakeSecret = (req, res, next) => {
+    const configuredSecret = process.env.INTAKE_SECRET;
+    if (!configuredSecret) {
+        logger.error("[Intake] INTAKE_SECRET is not configured — rejecting all intake requests.");
+        return res.status(503).json({ error: "Intake is not configured." });
+    }
+    const provided = req.headers["x-intake-secret"];
+    if (
+        typeof provided !== "string" ||
+        provided.length !== configuredSecret.length ||
+        !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(configuredSecret))
+    ) {
+        return res.status(401).json({ error: "Unauthorized." });
+    }
+    next();
+};
+
+app.post("/api/public/intake", intakeLimiter, requireIntakeSecret, (req, res) => {
+    const accountId = process.env.INTAKE_ACCOUNT_ID || "default_account";
+    const body = sanitizeObject(req.body || {});
+    const { name, company, email, phone, employees, biggestChallenge, message, source } = body;
+
+    if (!isNonEmptyString(name, 200)) return badRequest(res, "name is required.");
+    if (!isNonEmptyString(company, 200)) return badRequest(res, "company is required.");
+    if (!isValidEmail(email)) return badRequest(res, "A valid email is required.");
+
+    const id = uuidv4();
+    const secureToken = uuidv4();
+    const title = `Website Inquiry — ${company}`.slice(0, 300);
+
+    const descriptionParts = [];
+    if (message) descriptionParts.push(message.trim());
+    if (biggestChallenge) descriptionParts.push(`Biggest challenge: ${biggestChallenge}`);
+    if (employees) descriptionParts.push(`Company size: ${employees} employees`);
+    if (phone) descriptionParts.push(`Phone: ${phone}`);
+    descriptionParts.push(`Submitted via ${source || "website2026"} contact form.`);
+    const description = descriptionParts.join("\n\n").slice(0, 5000);
+
+    try {
+        db.prepare(`
+            INSERT INTO jobs (id, title, client, description, status, createdAt, priority, clientEmail, secureToken, depositPaid, account_id, timerStartedAt, timeLogs)
+            VALUES (@id, @title, @client, @description, @status, @createdAt, @priority, @clientEmail, @secureToken, 0, @account_id, @timerStartedAt, '[]')
+        `).run({
+            id,
+            title,
+            client: name,
+            description,
+            status: "request",
+            createdAt: new Date().toISOString(),
+            priority: "medium",
+            clientEmail: email,
+            secureToken,
+            account_id: accountId,
+            timerStartedAt: new Date().toISOString()
+        });
+
+        const insertTag = db.prepare('INSERT INTO job_tags (job_id, tag, account_id) VALUES (?, ?, ?)');
+        insertTag.run(id, "Website Lead", accountId);
+
+        const insertActivity = db.prepare('INSERT INTO activity_logs (id, job_id, action, timestamp, user, account_id) VALUES (@id, @job_id, @action, @timestamp, @user, @account_id)');
+        insertActivity.run({
+            id: uuidv4(),
+            job_id: id,
+            action: "Job created from website contact form",
+            timestamp: new Date().toISOString(),
+            user: "Website Intake",
+            account_id: accountId
+        });
+
+        // Auto-create/update client profile, same behavior as the authenticated job-creation route
+        const existingClient = db.prepare("SELECT id FROM clients WHERE name = ? AND account_id = ?").get(name, accountId);
+        if (existingClient) {
+            db.prepare("UPDATE clients SET email = ? WHERE id = ?").run(email, existingClient.id);
+        } else {
+            db.prepare("INSERT INTO clients (id, name, email, phone, company, notes, createdAt, account_id) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)")
+                .run(uuidv4(), name, email, phone || null, company, new Date().toISOString(), accountId);
+        }
+
+        try {
+            const jobFolder = ensureJobFolder(accountId, name, id);
+            fs.writeFileSync(path.join(jobFolder, 'README.md'), `# Project: ${title}\nClient: ${name}\nJob ID: ${id}\nCreated: ${new Date().toISOString()}\n\nThis folder contains all files, quotes, invoices, and logs for this project.\n`);
+        } catch (folderErr) {
+            console.error('Could not create job folder for intake job:', folderErr.message);
+        }
+
+        logger.info(`[Intake] Job ${id} created from website contact form for account ${accountId}`);
+        res.status(201).json({ success: true, jobId: id });
+    } catch (error) {
+        console.error("[Intake] Failed to create job:", error);
+        res.status(500).json({ error: isProduction ? "Internal Server Error" : error.message });
+    }
+});
+
 app.put("/api/jobs/:id", authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { title, client, description, status, dueDate, amount, priority, invoiceNotes, assignedTo, clientEmail, tags, activityLog, depositPaid, quoteApproved, lineItems, deliverables, timerStartedAt, stageAssignments, timeLogs } = req.body;
@@ -1017,7 +1133,7 @@ app.post("/api/jobs/:id/files", authenticateToken, upload.array('files', 20), (r
             filename: f.filename,
             size: f.size,
             mimetype: f.mimetype,
-            url: `/uploads/${sanitizeForPath(req.accountId)}/${sanitizeForPath(job?.client || 'unknown')}/${jobId}/${f.filename}`,
+            url: `/api/files/${sanitizeForPath(req.accountId)}/${sanitizeForPath(job?.client || 'unknown')}/${jobId}/${f.filename}`,
             uploadedAt: new Date().toISOString()
         }));
 
@@ -1057,7 +1173,7 @@ app.get("/api/jobs/:id/files", authenticateToken, (req, res) => {
                     name: e.name.replace(/^\d+-/, ''),
                     size: stat.size,
                     uploadedAt: stat.mtime.toISOString(),
-                    url: `/uploads/${sanitizeForPath(req.accountId)}/${sanitizeForPath(job.client)}/${jobId}/${e.name}`
+                    url: `/api/files/${sanitizeForPath(req.accountId)}/${sanitizeForPath(job.client)}/${jobId}/${e.name}`
                 };
             });
 

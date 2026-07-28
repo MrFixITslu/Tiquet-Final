@@ -382,7 +382,7 @@ if (jobsCount.count === 0 && allowSeed) {
     insertFile.run({ id: "f1", name: "Brand_Guidelines_2024.pdf", size: 2500000, type: "application/pdf", uploadedAt: new Date(Date.now() - 86400000 * 3).toISOString(), uploadedBy: "John Doe", jobId: null });
     insertFile.run({ id: "f2", name: "Logo_Assets.zip", size: 15000000, type: "application/zip", uploadedAt: new Date(Date.now() - 86400000 * 5).toISOString(), uploadedBy: "Alice Smith", jobId: null });
 
-    insertSettings.run({ name: "Auvic Solutions", address: "123 Creative Plaza, Design District, NY 10001", email: "billing@auvic.com", phone: "+1 (555) 000-1234", logoUrl: "https://picsum.photos/200/100?random=1", paymentTerms: "Please make payment within 30 days of receiving this invoice.", currency: "USD", taxRate: 0 });
+    insertSettings.run({ name: "V79 Tiquet Demo Co.", address: "123 Creative Plaza, Design District, NY 10001", email: "billing@example.com", phone: "+1 (555) 000-1234", logoUrl: "https://picsum.photos/200/100?random=1", paymentTerms: "Please make payment within 30 days of receiving this invoice.", currency: "USD", taxRate: 0 });
   });
 
   seedTransaction();

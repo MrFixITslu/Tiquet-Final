@@ -17,7 +17,7 @@ const SMTP_PORT    = parseInt(process.env.SMTP_PORT || '587', 10);
 const SMTP_USER    = process.env.SMTP_USER;
 const SMTP_PASS    = process.env.SMTP_PASS;
 const SMTP_FROM    = process.env.SMTP_FROM || '"V79 Tick-It" <noreply@v79tickit.com>';
-const APP_BASE_URL = (process.env.APP_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
+const APP_BASE_URL = (process.env.APP_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 const isSmtpConfigured = !!(SMTP_HOST && SMTP_USER && SMTP_PASS);
 
