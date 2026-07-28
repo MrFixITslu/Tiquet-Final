@@ -42,6 +42,14 @@ export default function App() {
   // replacing the old localStorage user/business bootstrapping).
   useEffect(() => {
     const restoreSession = async () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const oauthToken = searchParams.get("oauth_token");
+      if (oauthToken) {
+        localStorage.setItem("token", oauthToken);
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+
       const token = localStorage.getItem("token");
       if (!token) {
         setIsRestoringSession(false);

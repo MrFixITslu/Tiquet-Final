@@ -617,14 +617,26 @@ app.post("/api/jobs", authenticateToken, (req, res) => {
         `);
 
         insertJob.run({ 
-            id, title, client, description, status, createdAt, dueDate, amount, priority, invoiceNotes, assignedTo, clientEmail, secureToken, 
+            id,
+            title: title || 'Untitled Job',
+            client: client || 'Unknown Client',
+            description: description || null,
+            status: status || 'request',
+            createdAt: createdAt || new Date().toISOString(),
+            dueDate: dueDate || null,
+            amount: amount !== undefined ? (Number(amount) || 0) : 0,
+            priority: priority || 'medium',
+            invoiceNotes: invoiceNotes || null,
+            assignedTo: assignedTo || null,
+            clientEmail: clientEmail || null,
+            secureToken, 
             depositPaid: depositPaid ? 1 : 0, 
             account_id: req.accountId,
             lineItems: lineItems ? JSON.stringify(lineItems) : null,
             deliverables: deliverables ? JSON.stringify(deliverables) : null,
             timerStartedAt: timerStartedAt || new Date().toISOString(), // Ensure timer ALWAYS starts
             stageAssignments: stageAssignments ? JSON.stringify(stageAssignments) : null,
-            timeLogs: timeLogs ? JSON.stringify(timeLogs) : "[]" // Default to empty array
+            timeLogs: timeLogs ? (typeof timeLogs === 'string' ? timeLogs : JSON.stringify(timeLogs)) : "[]" // Default to empty array
         });
 
         if (tags && tags.length > 0) {
@@ -690,6 +702,7 @@ app.post("/api/jobs", authenticateToken, (req, res) => {
             stageAssignments: newJob.stageAssignments ? JSON.parse(newJob.stageAssignments) : {}
         });
     } catch (error) {
+        console.error("POST /api/jobs error:", error);
         res.status(500).json({ error: isProduction ? "Internal Server Error" : error.message });
     }
 });
@@ -814,7 +827,7 @@ app.put("/api/jobs/:id", authenticateToken, async (req, res) => {
     const { title, client, description, status, dueDate, amount, priority, invoiceNotes, assignedTo, clientEmail, tags, activityLog, depositPaid, quoteApproved, lineItems, deliverables, timerStartedAt, stageAssignments, timeLogs } = req.body;
 
     try {
-        const existingJob = db.prepare("SELECT status, secureToken, clientEmail, title, stageAssignments FROM jobs WHERE id = ? AND account_id = ?").get(id, req.accountId);
+        const existingJob = db.prepare("SELECT * FROM jobs WHERE id = ? AND account_id = ?").get(id, req.accountId);
         if (!existingJob) return res.status(404).json({ error: "Job not found" });
 
         // BLOCK manual PAID transition
@@ -824,14 +837,14 @@ app.put("/api/jobs/:id", authenticateToken, async (req, res) => {
 
         const statusChanged = status && existingJob.status !== status;
         let finalStatus = status || existingJob.status;
-        let finalAssignedTo = assignedTo;
-        let finalTimerStartedAt = timerStartedAt;
-        let finalTimeLogs = timeLogs;
+        let finalAssignedTo = assignedTo !== undefined ? assignedTo : existingJob.assignedTo;
+        let finalTimerStartedAt = timerStartedAt !== undefined ? timerStartedAt : existingJob.timerStartedAt;
+        let finalTimeLogs = timeLogs !== undefined ? timeLogs : existingJob.timeLogs;
 
         // AUTO-ADVANCE: If in 'request' and now assigned, move to 'estimation'
-        if (finalStatus === 'request' && assignedTo && !existingJob.assignedTo) {
+        if (finalStatus === 'request' && finalAssignedTo && !existingJob.assignedTo) {
              finalStatus = 'estimation';
-             console.log(`AUTO-ADVANCE: Job ${id} assigned to ${assignedTo}. Moving to 'estimation'.`);
+             console.log(`AUTO-ADVANCE: Job ${id} assigned to ${finalAssignedTo}. Moving to 'estimation'.`);
         }
 
         // AUTOMATION: If status changed (either manually or via auto-advance)
@@ -849,23 +862,32 @@ app.put("/api/jobs/:id", authenticateToken, async (req, res) => {
                 title = @title, client = @client, description = @description, status = @status, 
                 dueDate = @dueDate, amount = @amount, priority = @priority, invoiceNotes = @invoiceNotes, 
                 assignedTo = @assignedTo, clientEmail = @clientEmail, depositPaid = @depositPaid,
-                quoteApproved =  COALESCE(@quoteApproved, quoteApproved),
+                quoteApproved = COALESCE(@quoteApproved, quoteApproved),
                 lineItems = @lineItems, deliverables = @deliverables, timerStartedAt = @timerStartedAt,
                 stageAssignments = @stageAssignments, timeLogs = @timeLogs
             WHERE id = @id AND account_id = @account_id
         `);
 
         updateJob.run({ 
-            id, title, client, description, status: finalStatus, dueDate, amount, priority, invoiceNotes, 
-            assignedTo: finalAssignedTo, clientEmail, 
-            depositPaid: depositPaid ? 1 : 0, 
-            quoteApproved: quoteApproved !== undefined ? (quoteApproved ? 1 : 0) : null,
+            id,
+            title: title !== undefined ? title : existingJob.title,
+            client: client !== undefined ? client : existingJob.client,
+            description: description !== undefined ? description : (existingJob.description || null),
+            status: finalStatus,
+            dueDate: dueDate !== undefined ? dueDate : (existingJob.dueDate || null),
+            amount: amount !== undefined ? (Number(amount) || 0) : (existingJob.amount || 0),
+            priority: priority !== undefined ? priority : (existingJob.priority || 'medium'),
+            invoiceNotes: invoiceNotes !== undefined ? invoiceNotes : (existingJob.invoiceNotes || null), 
+            assignedTo: finalAssignedTo !== undefined ? finalAssignedTo : (existingJob.assignedTo || null),
+            clientEmail: clientEmail !== undefined ? clientEmail : (existingJob.clientEmail || null), 
+            depositPaid: depositPaid !== undefined ? (depositPaid ? 1 : 0) : (existingJob.depositPaid ? 1 : 0), 
+            quoteApproved: quoteApproved !== undefined ? (quoteApproved ? 1 : 0) : (existingJob.quoteApproved ? 1 : 0),
             account_id: req.accountId,
-            lineItems: lineItems ? JSON.stringify(lineItems) : null,
-            deliverables: deliverables ? JSON.stringify(deliverables) : null,
-            timerStartedAt: finalTimerStartedAt !== undefined ? finalTimerStartedAt : null,
-            stageAssignments: stageAssignments ? JSON.stringify(stageAssignments) : (existingJob.stageAssignments || null),
-            timeLogs: finalTimeLogs ? (typeof finalTimeLogs === 'string' ? finalTimeLogs : JSON.stringify(finalTimeLogs)) : null
+            lineItems: lineItems !== undefined ? (lineItems ? JSON.stringify(lineItems) : null) : (existingJob.lineItems || null),
+            deliverables: deliverables !== undefined ? (deliverables ? JSON.stringify(deliverables) : null) : (existingJob.deliverables || null),
+            timerStartedAt: finalTimerStartedAt !== undefined ? finalTimerStartedAt : (existingJob.timerStartedAt || null),
+            stageAssignments: stageAssignments !== undefined ? (stageAssignments ? JSON.stringify(stageAssignments) : null) : (existingJob.stageAssignments || null),
+            timeLogs: finalTimeLogs !== undefined ? (typeof finalTimeLogs === 'string' ? finalTimeLogs : JSON.stringify(finalTimeLogs)) : (existingJob.timeLogs || "[]")
         });
 
         if (tags) {

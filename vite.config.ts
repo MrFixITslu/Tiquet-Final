@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      allowedHosts: true,
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: {
         ignored: ['**/data.db', '**/data.db-journal', '**/data.db-shm', '**/data.db-wal', '**/.env'],

@@ -2,22 +2,35 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
+import bcrypt from 'bcryptjs';
 
-const dbPath = process.env.TEST_DB || process.env.DATABASE_PATH || 'data.db';
+// Resolve DB path - check if data/data.db exists first
+const defaultDbPath = fs.existsSync(path.resolve('data/data.db')) ? 'data/data.db' : 'data.db';
+const dbPath = process.env.TEST_DB || process.env.DATABASE_PATH || defaultDbPath;
 
-// Ensure the parent directory exists (needed when DATABASE_PATH points to a Docker volume mount)
+// Ensure parent directory exists
 const dbDir = path.dirname(path.resolve(dbPath));
 if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
 }
-const db = new Database(dbPath); // Note: in memory could be used with ':memory:' but a file ensures persistence
+
+const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 5000');
+db.pragma('busy_timeout = 10000');
 db.pragma('foreign_keys = ON');
 db.pragma('secure_delete = ON');
 
-// Initialize database schema
+// Safe column addition helper
+function safeAddColumn(table, columnDef) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
+  } catch (e) {
+    // Column already exists or table issue
+  }
+}
+
+// Initial Core Tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -92,7 +105,7 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1), -- Only allow one row
+    id TEXT PRIMARY KEY,
     name TEXT,
     address TEXT,
     email TEXT,
@@ -133,262 +146,224 @@ db.exec(`
     account_id TEXT,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS subscriptions (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    stripe_subscription_id TEXT,
+    stripe_customer_id TEXT,
+    status TEXT NOT NULL DEFAULT 'trialing',
+    plan TEXT NOT NULL DEFAULT 'trial',
+    current_period_end TEXT,
+    canceled_at TEXT,
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS super_admins (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
 `);
 
+// Insert default account
 try {
-  db.exec("ALTER TABLE jobs ADD COLUMN depositPaid INTEGER DEFAULT 0");
+  db.exec(`INSERT OR IGNORE INTO accounts (id, name, createdAt) VALUES ('default_account', 'Default Account', CURRENT_TIMESTAMP)`);
 } catch (e) {}
 
-// Multi-tenancy Migrations
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS accounts (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      createdAt TEXT NOT NULL
-    );
-    INSERT OR IGNORE INTO accounts (id, name, createdAt) VALUES ('default_account', 'Default Account', CURRENT_TIMESTAMP);
-  `);
+// Safe Column Migrations
+safeAddColumn('jobs', 'depositPaid INTEGER DEFAULT 0');
+safeAddColumn('jobs', 'quoteApproved INTEGER DEFAULT 0');
+safeAddColumn('jobs', 'lineItems TEXT');
+safeAddColumn('jobs', 'deliverables TEXT');
+safeAddColumn('jobs', 'timerStartedAt TEXT');
+safeAddColumn('jobs', 'stageAssignments TEXT');
+safeAddColumn('jobs', 'timeLogs TEXT');
 
-  // --- Login Lockout Migration ---
-  try {
-    db.exec(`
-      ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0;
-      ALTER TABLE users ADD COLUMN locked_until TEXT;
-    `);
-  } catch (e) {
-    // Columns already exist
-  }
+safeAddColumn('users', 'failed_login_attempts INTEGER DEFAULT 0');
+safeAddColumn('users', 'locked_until TEXT');
+safeAddColumn('users', 'password_hash TEXT');
+safeAddColumn('users', 'twoFactorSecret TEXT');
+safeAddColumn('users', 'twoFactorEnabled INTEGER DEFAULT 0');
+safeAddColumn('users', 'oauth_provider TEXT');
+safeAddColumn('users', 'oauth_id TEXT');
 
-  // --- Production Indexes ---
-  // Note: indexes moved down so columns exist first.
+safeAddColumn('clients', 'address TEXT');
 
-  // Migrate settings table to support multiple rows
-  try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS settings_new (
-        id TEXT PRIMARY KEY,
-        name TEXT, address TEXT, email TEXT, phone TEXT,
-        logoUrl TEXT, paymentTerms TEXT, currency TEXT, taxRate REAL,
-        account_id TEXT DEFAULT 'default_account'
-      );
-      INSERT OR IGNORE INTO settings_new (id, name, address, email, phone, logoUrl, paymentTerms, currency, taxRate, account_id)
-      SELECT CAST(id AS TEXT), name, address, email, phone, logoUrl, paymentTerms, currency, taxRate, 'default_account' FROM settings;
-      DROP TABLE settings;
-      ALTER TABLE settings_new RENAME TO settings;
-    `);
-  } catch (e) {}
-  
-  const tables = ['jobs', 'job_tags', 'activity_logs', 'employees', 'users', 'user_permissions', 'files', 'clients', 'job_messages'];
-  for (const table of tables) {
-    try {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN account_id TEXT DEFAULT 'default_account'`);
-    } catch (e) {
-      // Column might already exist
-    }
-  }
+safeAddColumn('accounts', 'status TEXT DEFAULT \'active\'');
+safeAddColumn('accounts', 'plan TEXT DEFAULT \'trial\'');
+safeAddColumn('accounts', 'suspendedAt TEXT');
+safeAddColumn('accounts', 'trialEndsAt TEXT');
+safeAddColumn('accounts', 'stripeCustomerId TEXT');
 
-  // --- Production Indexes ---
-  try {
-    db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_jobs_account ON jobs(account_id);
-      CREATE INDEX IF NOT EXISTS idx_users_account ON users(account_id);
-      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-      CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
-      CREATE INDEX IF NOT EXISTS idx_notifications_account ON notifications(account_id);
-      CREATE INDEX IF NOT EXISTS idx_clients_account ON clients(account_id);
-      CREATE INDEX IF NOT EXISTS idx_employees_account ON employees(account_id);
-    `);
-  } catch (e) {}
-
-  try { db.exec("ALTER TABLE users ADD COLUMN password_hash TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN twoFactorSecret TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN twoFactorEnabled INTEGER DEFAULT 0"); } catch(e) {}
-  // ─── OAuth provider columns (Google / Apple Sign-In) ─────────────────────
-  try { db.exec("ALTER TABLE users ADD COLUMN oauth_provider TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE users ADD COLUMN oauth_id TEXT"); } catch(e) {}
-  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth ON users (oauth_provider, oauth_id) WHERE oauth_provider IS NOT NULL"); } catch(e) {}
-  try { db.exec("ALTER TABLE jobs ADD COLUMN quoteApproved INTEGER DEFAULT 0"); } catch(e) {}
-  try { db.exec("ALTER TABLE jobs ADD COLUMN lineItems TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE jobs ADD COLUMN deliverables TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE jobs ADD COLUMN timerStartedAt TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE jobs ADD COLUMN stageAssignments TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE jobs ADD COLUMN timeLogs TEXT"); } catch(e) {}
-
-  // ─── New: accounts status, plan, stripe columns ───────────────────────────
-  try { db.exec("ALTER TABLE clients ADD COLUMN address TEXT"); } catch(e) {}
-
-  try { db.exec("ALTER TABLE accounts ADD COLUMN status TEXT DEFAULT 'active'"); } catch(e) {}
-  try { db.exec("ALTER TABLE accounts ADD COLUMN plan TEXT DEFAULT 'trial'"); } catch(e) {}
-  try { db.exec("ALTER TABLE accounts ADD COLUMN suspendedAt TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE accounts ADD COLUMN trialEndsAt TEXT"); } catch(e) {}
-  try { db.exec("ALTER TABLE accounts ADD COLUMN stripeCustomerId TEXT"); } catch(e) {}
-
-  // ─── New: subscriptions table ─────────────────────────────────────────────
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS subscriptions (
-      id TEXT PRIMARY KEY,
-      account_id TEXT NOT NULL,
-      stripe_subscription_id TEXT,
-      stripe_customer_id TEXT,
-      status TEXT NOT NULL DEFAULT 'trialing',
-      plan TEXT NOT NULL DEFAULT 'trial',
-      current_period_end TEXT,
-      canceled_at TEXT,
-      createdAt TEXT NOT NULL,
-      FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
-    );
-  `);
-
-  // ─── New: super_admins table ──────────────────────────────────────────────
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS super_admins (
-      id TEXT PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      createdAt TEXT NOT NULL
-    );
-  `);
-
-} catch (e) {
-  console.error("Migration error:", e.message);
+// Add account_id to tables for multi-tenancy
+const tenantTables = ['jobs', 'job_tags', 'activity_logs', 'employees', 'users', 'user_permissions', 'files', 'clients', 'job_messages', 'settings'];
+for (const table of tenantTables) {
+  safeAddColumn(table, "account_id TEXT DEFAULT 'default_account'");
 }
 
-// ─── Seed super admin from env if not exists ──────────────────────────────────
-import bcrypt from 'bcryptjs';
+// Production Indexes
+try {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_jobs_account ON jobs(account_id);
+    CREATE INDEX IF NOT EXISTS idx_users_account ON users(account_id);
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_account ON notifications(account_id);
+    CREATE INDEX IF NOT EXISTS idx_clients_account ON clients(account_id);
+    CREATE INDEX IF NOT EXISTS idx_employees_account ON employees(account_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth ON users (oauth_provider, oauth_id) WHERE oauth_provider IS NOT NULL;
+  `);
+} catch (e) {
+  console.warn("Index creation warning:", e.message);
+}
+
+// Super Admin Seed from env
 const saEmail    = process.env.SUPER_ADMIN_EMAIL;
 const saPassword = process.env.SUPER_ADMIN_PASSWORD;
 
 if (saEmail && saPassword) {
+  try {
     const existingSA = db.prepare("SELECT id FROM super_admins WHERE email = ?").get(saEmail);
     if (!existingSA) {
-        const saHash = bcrypt.hashSync(saPassword, 12);
-        db.prepare("INSERT INTO super_admins (id, email, password_hash, createdAt) VALUES (?, ?, ?, ?)")
-            .run(uuidv4(), saEmail, saHash, new Date().toISOString());
-        console.log(`✅ Super admin seeded: ${saEmail}`);
+      const saHash = bcrypt.hashSync(saPassword, 12);
+      db.prepare("INSERT INTO super_admins (id, email, password_hash, createdAt) VALUES (?, ?, ?, ?)")
+        .run(uuidv4(), saEmail, saHash, new Date().toISOString());
+      console.log(`✅ Super admin seeded: ${saEmail}`);
     }
-} else {
-    if (process.env.NODE_ENV === 'production') {
-        console.warn('⚠️  SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD not set — super admin not seeded');
-    }
-}
-
-// ─── Seed trial subscriptions for existing accounts that have none ────────────
-const trialDays = parseInt(process.env.TRIAL_DAYS || '14');
-const allAccounts = db.prepare("SELECT id, createdAt FROM accounts").all();
-for (const acc of allAccounts) {
-  const hasSub = db.prepare("SELECT id FROM subscriptions WHERE account_id = ?").get(acc.id);
-  if (!hasSub) {
-    const trialEnd = new Date(new Date(acc.createdAt).getTime() + trialDays * 24 * 60 * 60 * 1000).toISOString();
-    db.prepare("INSERT INTO subscriptions (id, account_id, status, plan, current_period_end, createdAt) VALUES (?, ?, 'trialing', 'trial', ?, ?)")
-      .run(uuidv4(), acc.id, trialEnd, new Date().toISOString());
-    db.prepare("UPDATE accounts SET plan = 'trial', trialEndsAt = ? WHERE id = ?").run(trialEnd, acc.id);
+  } catch (e) {
+    console.error("Super admin seed error:", e.message);
   }
 }
 
-// Check if seeding is needed.
-// SECURITY: demo/seed data (including a login-capable "john@example.com" admin
-// account with a fixed, publicly-known password hash) must NEVER be created on
-// a real production database. Seeding now requires NODE_ENV !== 'production',
-// or an explicit opt-in via SEED_DEMO_DATA=true for staging/demo environments.
-const jobsCount = db.prepare('SELECT count(*) as count FROM jobs').get();
-const allowSeed = process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_DATA === 'true';
-if (jobsCount.count === 0 && allowSeed) {
-  console.log("Seeding database with initial data...");
+// Seed trial subscriptions
+try {
+  const trialDays = parseInt(process.env.TRIAL_DAYS || '14');
+  const allAccounts = db.prepare("SELECT id, createdAt FROM accounts").all();
+  for (const acc of allAccounts) {
+    const hasSub = db.prepare("SELECT id FROM subscriptions WHERE account_id = ?").get(acc.id);
+    if (!hasSub) {
+      const rawCreated = acc.createdAt ? new Date(acc.createdAt).getTime() : Date.now();
+      const validCreated = isNaN(rawCreated) ? Date.now() : rawCreated;
+      const trialEnd = new Date(validCreated + trialDays * 24 * 60 * 60 * 1000).toISOString();
+      db.prepare("INSERT INTO subscriptions (id, account_id, status, plan, current_period_end, createdAt) VALUES (?, ?, 'trialing', 'trial', ?, ?)")
+        .run(uuidv4(), acc.id, trialEnd, new Date().toISOString());
+      db.prepare("UPDATE accounts SET plan = 'trial', trialEndsAt = ? WHERE id = ?").run(trialEnd, acc.id);
+    }
+  }
+} catch (e) {
+  console.error("Subscription seed error:", e.message);
+}
 
-  const insertJob = db.prepare(`
-    INSERT INTO jobs (id, title, client, description, status, createdAt, dueDate, amount, priority, invoiceNotes, assignedTo, clientEmail, secureToken, depositPaid)
-    VALUES (@id, @title, @client, @description, @status, @createdAt, @dueDate, @amount, @priority, @invoiceNotes, @assignedTo, @clientEmail, @secureToken, @depositPaid)
-  `);
+// Seed Demo Data if empty and allowed
+try {
+  const jobsCount = db.prepare('SELECT count(*) as count FROM jobs').get() || { count: 0 };
+  const allowSeed = process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_DATA === 'true';
+  if (jobsCount.count === 0 && allowSeed) {
+    console.log("Seeding database with initial data...");
 
-  const insertActivityLog = db.prepare(`
-    INSERT INTO activity_logs (id, job_id, action, timestamp, user)
-    VALUES (@id, @job_id, @action, @timestamp, @user)
-  `);
+    const insertJob = db.prepare(`
+      INSERT INTO jobs (id, title, client, description, status, createdAt, dueDate, amount, priority, invoiceNotes, assignedTo, clientEmail, secureToken, depositPaid, account_id)
+      VALUES (@id, @title, @client, @description, @status, @createdAt, @dueDate, @amount, @priority, @invoiceNotes, @assignedTo, @clientEmail, @secureToken, @depositPaid, 'default_account')
+    `);
 
-  const insertTag = db.prepare('INSERT INTO job_tags (job_id, tag) VALUES (?, ?)');
+    const insertActivityLog = db.prepare(`
+      INSERT INTO activity_logs (id, job_id, action, timestamp, user, account_id)
+      VALUES (@id, @job_id, @action, @timestamp, @user, 'default_account')
+    `);
 
-  const insertEmployee = db.prepare(`
-    INSERT INTO employees (id, name, role, salary, hourlyRate, hoursWorked, workerType, paymentMethod, status, isCheckedIn, lastCheckIn)
-    VALUES (@id, @name, @role, @salary, @hourlyRate, @hoursWorked, @workerType, @paymentMethod, @status, @isCheckedIn, @lastCheckIn)
-  `);
+    const insertTag = db.prepare('INSERT INTO job_tags (job_id, tag, account_id) VALUES (?, ?, \'default_account\')');
 
-  const insertUser = db.prepare('INSERT INTO users (id, name, email, role, password_hash) VALUES (@id, @name, @email, @role, @password_hash)');
-  const insertPermission = db.prepare('INSERT INTO user_permissions (user_id, permission) VALUES (?, ?)');
+    const insertEmployee = db.prepare(`
+      INSERT INTO employees (id, name, role, salary, hourlyRate, hoursWorked, workerType, paymentMethod, status, isCheckedIn, lastCheckIn, account_id)
+      VALUES (@id, @name, @role, @salary, @hourlyRate, @hoursWorked, @workerType, @paymentMethod, @status, @isCheckedIn, @lastCheckIn, 'default_account')
+    `);
 
-  const insertFile = db.prepare(`
-    INSERT INTO files (id, name, size, type, uploadedAt, uploadedBy, jobId)
-    VALUES (@id, @name, @size, @type, @uploadedAt, @uploadedBy, @jobId)
-  `);
+    const insertUser = db.prepare('INSERT INTO users (id, name, email, role, password_hash, account_id) VALUES (@id, @name, @email, @role, @password_hash, \'default_account\')');
+    const insertPermission = db.prepare('INSERT INTO user_permissions (user_id, permission, account_id) VALUES (?, ?, \'default_account\')');
 
-  const insertSettings = db.prepare(`
-    INSERT INTO settings (id, name, address, email, phone, logoUrl, paymentTerms, currency, taxRate)
-    VALUES (1, @name, @address, @email, @phone, @logoUrl, @paymentTerms, @currency, @taxRate)
-  `);
+    const insertFile = db.prepare(`
+      INSERT INTO files (id, name, size, type, uploadedAt, uploadedBy, jobId, account_id)
+      VALUES (@id, @name, @size, @type, @uploadedAt, @uploadedBy, @jobId, 'default_account')
+    `);
 
-  const seedTransaction = db.transaction(() => {
-    const job1Id = "1";
-    insertJob.run({
-      id: job1Id, title: "Website Redesign", client: "Acme Corp", description: "Complete overhaul of the corporate website including new branding and e-commerce integration.", status: "request", createdAt: new Date(Date.now() - 86400000 * 2).toISOString(), dueDate: new Date(Date.now() + 86400000 * 10).toISOString(), amount: 15000, priority: "high", invoiceNotes: null, assignedTo: "Alice Smith", clientEmail: "client@acme.com", secureToken: uuidv4(), depositPaid: 0
+    const insertSettings = db.prepare(`
+      INSERT OR REPLACE INTO settings (id, name, address, email, phone, logoUrl, paymentTerms, currency, taxRate, account_id)
+      VALUES ('1', @name, @address, @email, @phone, @logoUrl, @paymentTerms, @currency, @taxRate, 'default_account')
+    `);
+
+    const seedTransaction = db.transaction(() => {
+      const job1Id = "1";
+      insertJob.run({
+        id: job1Id, title: "Website Redesign", client: "Acme Corp", description: "Complete overhaul of the corporate website including new branding and e-commerce integration.", status: "request", createdAt: new Date(Date.now() - 86400000 * 2).toISOString(), dueDate: new Date(Date.now() + 86400000 * 10).toISOString(), amount: 15000, priority: "high", invoiceNotes: null, assignedTo: "Alice Smith", clientEmail: "client@acme.com", secureToken: uuidv4(), depositPaid: 0
+      });
+      insertTag.run(job1Id, 'design');
+      insertTag.run(job1Id, 'web');
+      insertActivityLog.run({ id: "l1", job_id: job1Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 2).toISOString(), user: "System" });
+
+      const job2Id = "2";
+      insertJob.run({
+        id: job2Id, title: "SEO Audit", client: "TechStart Inc", description: "Comprehensive SEO audit and keyword research for Q3 marketing push.", status: "estimation", createdAt: new Date(Date.now() - 86400000 * 5).toISOString(), dueDate: new Date(Date.now() + 86400000 * 3).toISOString(), amount: null, priority: "medium", invoiceNotes: null, assignedTo: "Bob Jones", clientEmail: "tech@techstart.com", secureToken: uuidv4(), depositPaid: 0
+      });
+      insertTag.run(job2Id, 'marketing');
+      insertTag.run(job2Id, 'seo');
+      insertActivityLog.run({ id: "l2", job_id: job2Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 5).toISOString(), user: "System" });
+      insertActivityLog.run({ id: "l3", job_id: job2Id, action: "Moved from request to estimation", timestamp: new Date(Date.now() - 86400000 * 4).toISOString(), user: "Alice Smith" });
+
+      const job3Id = "3";
+      insertJob.run({
+        id: job3Id, title: "Mobile App MVP", client: "Fitness Plus", description: "React Native mobile app MVP with user authentication and basic workout tracking.", status: "in-progress", createdAt: new Date(Date.now() - 86400000 * 14).toISOString(), dueDate: new Date(Date.now() + 86400000 * 30).toISOString(), amount: 25000, priority: "high", invoiceNotes: null, assignedTo: "Charlie Brown", clientEmail: "fit@fitnessplus.com", secureToken: uuidv4(), depositPaid: 1
+      });
+      insertTag.run(job3Id, 'mobile');
+      insertTag.run(job3Id, 'app');
+      insertActivityLog.run({ id: "l4", job_id: job3Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 14).toISOString(), user: "System" });
+      insertActivityLog.run({ id: "l5", job_id: job3Id, action: "Moved from request to in-progress", timestamp: new Date(Date.now() - 86400000 * 12).toISOString(), user: "Bob Jones" });
+
+      const job4Id = "4";
+      insertJob.run({
+        id: job4Id, title: "Logo Design", client: "Fresh Bakery", description: "New logo design and brand guidelines for local bakery chain.", status: "review", createdAt: new Date(Date.now() - 86400000 * 20).toISOString(), dueDate: new Date(Date.now() - 86400000 * 1).toISOString(), amount: 2500, priority: "low", invoiceNotes: null, assignedTo: "Dana White", clientEmail: "bake@freshbakery.com", secureToken: uuidv4(), depositPaid: 1
+      });
+      insertTag.run(job4Id, 'branding');
+      insertTag.run(job4Id, 'logo');
+      insertActivityLog.run({ id: "l6", job_id: job4Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 20).toISOString(), user: "System" });
+
+      const job5Id = "5";
+      insertJob.run({
+        id: job5Id, title: "Q2 Marketing Campaign", client: "Global Retail", description: "Social media ad creatives and landing page design for Q2 campaign.", status: "invoiced", createdAt: new Date(Date.now() - 86400000 * 45).toISOString(), dueDate: null, amount: 8500, priority: "medium", invoiceNotes: "1. Project Delivery: Q2 Marketing Campaign - $8500", assignedTo: "Alice Smith", clientEmail: "global@retail.com", secureToken: uuidv4(), depositPaid: 1
+      });
+      insertTag.run(job5Id, 'marketing');
+      insertTag.run(job5Id, 'ads');
+      insertActivityLog.run({ id: "l7", job_id: job5Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 45).toISOString(), user: "System" });
+
+      insertEmployee.run({ id: "e1", name: "Alice Smith", role: "Senior Designer", salary: 5000, hourlyRate: null, hoursWorked: null, workerType: "salary", paymentMethod: "Bank Transfer", status: "active", isCheckedIn: 0, lastCheckIn: null });
+      insertEmployee.run({ id: "e2", name: "Bob Jones", role: "Project Manager", salary: 4500, hourlyRate: null, hoursWorked: null, workerType: "salary", paymentMethod: "Bank Transfer", status: "active", isCheckedIn: 0, lastCheckIn: null });
+      insertEmployee.run({ id: "e3", name: "Charlie Brown", role: "Developer", salary: 6000, hourlyRate: null, hoursWorked: null, workerType: "salary", paymentMethod: "PayPal", status: "active", isCheckedIn: 0, lastCheckIn: null });
+
+      insertUser.run({ id: "u1", name: "John Doe", email: "john@example.com", role: "Admin", password_hash: "$2b$10$szwsqdFs7AFwmEPci8Gd4.kgSdRQY6Wu17Yj1QmB9afeuPkqtYlPm" });
+      ['dashboard', 'jobs', 'new-request', 'payroll', 'invoices', 'users', 'files'].forEach(p => insertPermission.run("u1", p));
+
+      insertUser.run({ id: "u2", name: "Alice Smith", email: "alice@example.com", role: "Manager", password_hash: null });
+      ['dashboard', 'jobs', 'new-request', 'files'].forEach(p => insertPermission.run("u2", p));
+
+      insertFile.run({ id: "f1", name: "Brand_Guidelines_2024.pdf", size: 2500000, type: "application/pdf", uploadedAt: new Date(Date.now() - 86400000 * 3).toISOString(), uploadedBy: "John Doe", jobId: null });
+      insertFile.run({ id: "f2", name: "Logo_Assets.zip", size: 15000000, type: "application/zip", uploadedAt: new Date(Date.now() - 86400000 * 5).toISOString(), uploadedBy: "Alice Smith", jobId: null });
+
+      insertSettings.run({ name: "V79 Tiquet Demo Co.", address: "123 Creative Plaza, Design District, NY 10001", email: "billing@example.com", phone: "+1 (555) 000-1234", logoUrl: "https://picsum.photos/200/100?random=1", paymentTerms: "Please make payment within 30 days of receiving this invoice.", currency: "USD", taxRate: 0 });
     });
-    insertTag.run(job1Id, 'design');
-    insertTag.run(job1Id, 'web');
-    insertActivityLog.run({ id: "l1", job_id: job1Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 2).toISOString(), user: "System" });
 
-    const job2Id = "2";
-    insertJob.run({
-      id: job2Id, title: "SEO Audit", client: "TechStart Inc", description: "Comprehensive SEO audit and keyword research for Q3 marketing push.", status: "estimation", createdAt: new Date(Date.now() - 86400000 * 5).toISOString(), dueDate: new Date(Date.now() + 86400000 * 3).toISOString(), amount: null, priority: "medium", invoiceNotes: null, assignedTo: "Bob Jones", clientEmail: "tech@techstart.com", secureToken: uuidv4(), depositPaid: 0
-    });
-    insertTag.run(job2Id, 'marketing');
-    insertTag.run(job2Id, 'seo');
-    insertActivityLog.run({ id: "l2", job_id: job2Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 5).toISOString(), user: "System" });
-    insertActivityLog.run({ id: "l3", job_id: job2Id, action: "Moved from request to estimation", timestamp: new Date(Date.now() - 86400000 * 4).toISOString(), user: "Alice Smith" });
-
-    const job3Id = "3";
-    insertJob.run({
-      id: job3Id, title: "Mobile App MVP", client: "Fitness Plus", description: "React Native mobile app MVP with user authentication and basic workout tracking.", status: "in-progress", createdAt: new Date(Date.now() - 86400000 * 14).toISOString(), dueDate: new Date(Date.now() + 86400000 * 30).toISOString(), amount: 25000, priority: "high", invoiceNotes: null, assignedTo: "Charlie Brown", clientEmail: "fit@fitnessplus.com", secureToken: uuidv4(), depositPaid: 1
-    });
-    insertTag.run(job3Id, 'mobile');
-    insertTag.run(job3Id, 'app');
-    insertActivityLog.run({ id: "l4", job_id: job3Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 14).toISOString(), user: "System" });
-    insertActivityLog.run({ id: "l5", job_id: job3Id, action: "Moved from request to in-progress", timestamp: new Date(Date.now() - 86400000 * 12).toISOString(), user: "Bob Jones" });
-
-    const job4Id = "4";
-    insertJob.run({
-      id: job4Id, title: "Logo Design", client: "Fresh Bakery", description: "New logo design and brand guidelines for local bakery chain.", status: "review", createdAt: new Date(Date.now() - 86400000 * 20).toISOString(), dueDate: new Date(Date.now() - 86400000 * 1).toISOString(), amount: 2500, priority: "low", invoiceNotes: null, assignedTo: "Dana White", clientEmail: "bake@freshbakery.com", secureToken: uuidv4(), depositPaid: 1
-    });
-    insertTag.run(job4Id, 'branding');
-    insertTag.run(job4Id, 'logo');
-    insertActivityLog.run({ id: "l6", job_id: job4Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 20).toISOString(), user: "System" });
-
-    const job5Id = "5";
-    insertJob.run({
-      id: job5Id, title: "Q2 Marketing Campaign", client: "Global Retail", description: "Social media ad creatives and landing page design for Q2 campaign.", status: "invoiced", createdAt: new Date(Date.now() - 86400000 * 45).toISOString(), dueDate: null, amount: 8500, priority: "medium", invoiceNotes: "1. Project Delivery: Q2 Marketing Campaign - $8500", assignedTo: "Alice Smith", clientEmail: "global@retail.com", secureToken: uuidv4(), depositPaid: 1
-    });
-    insertTag.run(job5Id, 'marketing');
-    insertTag.run(job5Id, 'ads');
-    insertActivityLog.run({ id: "l7", job_id: job5Id, action: "Job request created", timestamp: new Date(Date.now() - 86400000 * 45).toISOString(), user: "System" });
-
-    insertEmployee.run({ id: "e1", name: "Alice Smith", role: "Senior Designer", salary: 5000, hourlyRate: null, hoursWorked: null, workerType: "salary", paymentMethod: "Bank Transfer", status: "active", isCheckedIn: 0, lastCheckIn: null });
-    insertEmployee.run({ id: "e2", name: "Bob Jones", role: "Project Manager", salary: 4500, hourlyRate: null, hoursWorked: null, workerType: "salary", paymentMethod: "Bank Transfer", status: "active", isCheckedIn: 0, lastCheckIn: null });
-    insertEmployee.run({ id: "e3", name: "Charlie Brown", role: "Developer", salary: 6000, hourlyRate: null, hoursWorked: null, workerType: "salary", paymentMethod: "PayPal", status: "active", isCheckedIn: 0, lastCheckIn: null });
-
-    insertUser.run({ id: "u1", name: "John Doe", email: "john@example.com", role: "Admin", password_hash: "$2b$10$szwsqdFs7AFwmEPci8Gd4.kgSdRQY6Wu17Yj1QmB9afeuPkqtYlPm" });
-    ['dashboard', 'jobs', 'new-request', 'payroll', 'invoices', 'users', 'files'].forEach(p => insertPermission.run("u1", p));
-
-    insertUser.run({ id: "u2", name: "Alice Smith", email: "alice@example.com", role: "Manager", password_hash: null });
-    ['dashboard', 'jobs', 'new-request', 'files'].forEach(p => insertPermission.run("u2", p));
-
-    insertFile.run({ id: "f1", name: "Brand_Guidelines_2024.pdf", size: 2500000, type: "application/pdf", uploadedAt: new Date(Date.now() - 86400000 * 3).toISOString(), uploadedBy: "John Doe", jobId: null });
-    insertFile.run({ id: "f2", name: "Logo_Assets.zip", size: 15000000, type: "application/zip", uploadedAt: new Date(Date.now() - 86400000 * 5).toISOString(), uploadedBy: "Alice Smith", jobId: null });
-
-    insertSettings.run({ name: "V79 Tiquet Demo Co.", address: "123 Creative Plaza, Design District, NY 10001", email: "billing@example.com", phone: "+1 (555) 000-1234", logoUrl: "https://picsum.photos/200/100?random=1", paymentTerms: "Please make payment within 30 days of receiving this invoice.", currency: "USD", taxRate: 0 });
-  });
-
-  seedTransaction();
-  console.log("Database seeded successfully.");
-} else if (jobsCount.count === 0) {
-  console.log("Empty database detected in production — skipping demo data seed (set SEED_DEMO_DATA=true to override).");
+    seedTransaction();
+    console.log("Database seeded successfully.");
+  }
+} catch (e) {
+  console.error("Database seed check error:", e.message);
 }
 
 export default db;
