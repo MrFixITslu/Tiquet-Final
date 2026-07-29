@@ -38,7 +38,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
-const PORT = isProduction ? (process.env.PORT || 3040) : 3001;
+const PORT = isProduction ? (process.env.PORT || 3000) : 3001;
 
 registerHealthCheck(app);
 
