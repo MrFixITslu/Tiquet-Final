@@ -24,9 +24,9 @@ export default defineConfig(({ mode }) => {
         ignored: ['**/data.db', '**/data.db-journal', '**/data.db-shm', '**/data.db-wal', '**/.env'],
       },
       proxy: {
-        '/api': { target: 'http://127.0.0.1:3001', ws: true },
-        '/ws': { target: 'http://127.0.0.1:3001', ws: true },
-        '/health': { target: 'http://127.0.0.1:3001' },
+        '/api': { target: 'http://192.168.100.163:3050', ws: true },
+        '/ws': { target: 'http://192.168.100.163:3050', ws: true },
+        '/health': { target: 'http://192.168.100.163:3050' },
       },
     },
     build: {
