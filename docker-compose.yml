@@ -13,7 +13,7 @@ services:
       - DATABASE_PATH=app/data/tiquet.db
       # Automatically detected by standard Nginx reverse proxy containers (e.g. jwilder/nginx-proxy, Nginx Proxy Manager)
       - VIRTUAL_HOST=tiquet.v79sl.duckdns.org
-      - VIRTUAL_PORT=3000
+      - VIRTUAL_PORT=3050
       - LETSENCRYPT_HOST=tiquet.v79sl.duckdns.org
     ports:
       - "3050:80"
