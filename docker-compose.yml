@@ -16,7 +16,7 @@ services:
       - VIRTUAL_PORT=3050
       - LETSENCRYPT_HOST=tiquet.v79sl.duckdns.org
     ports:
-      - 3050:80
+      - 3050:3050
     volumes:
       - tiquet_data:/app/data
     healthcheck:
