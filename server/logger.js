@@ -38,7 +38,11 @@ const write = (filePath, entry) => {
 const COLOURS = { error: '\x1b[31m', warn: '\x1b[33m', info: '\x1b[36m', audit: '\x1b[35m', reset: '\x1b[0m' };
 
 const devPrint = (level, msg, meta) => {
-    if (isProduction) return;
+    // In production, suppress routine info/warn noise from stdout (that's what
+    // the file logs are for) — but errors must ALWAYS be visible in
+    // `docker logs`, since that's often the only signal an operator has when
+    // something crashes before the log directory is even readable.
+    if (isProduction && level !== 'error') return;
     const c = COLOURS[level] || '';
     const r = COLOURS.reset;
     const metaStr = meta && Object.keys(meta).length ? ' ' + JSON.stringify(meta) : '';

@@ -14,7 +14,18 @@ if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
 }
 
-const db = new Database(dbPath);
+let db;
+try {
+  db = new Database(dbPath);
+} catch (e) {
+  // Always print to stderr, even in production — this must never be silent.
+  // Common causes: DATABASE_PATH directory not writable by the container's
+  // runtime user (e.g. a Docker named volume still owned by root from a
+  // previous version of the image), or a missing/misconfigured volume mount.
+  console.error(`[FATAL] Could not open database at "${dbPath}": ${e.message}`);
+  console.error(`[FATAL] Check that the directory is writable by the container's runtime user (id -u).`);
+  process.exit(1);
+}
 
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 10000');
